@@ -21,6 +21,7 @@
   "dependencies": {
     "axios": "^1.6.8",
     "nunjucks": "^3.2.4",
-    "unix-dgram": "^2.0.6"
+    "unix-dgram": "^2.0.6",
+    "userid": "^1.2.5"
   }
 }

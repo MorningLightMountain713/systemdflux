@@ -1,7 +1,7 @@
 [Unit]
 Description=FluxOS Control Process
-After=syncthing.service
-Wants=syncthing.service
+After=syncthing.service mongod.service containerd.service
+Wants=syncthing.service mongod.service containerd.service
 
 # If the service is unsucessfully started 4 times within 5 minutes - reboot.
 StartLimitIntervalSec=300

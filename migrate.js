@@ -3,11 +3,14 @@ const fs = require("node:fs/promises");
 
 const http = require("http");
 const axios = require("axios");
-
+const userid = require('userid');
 const nunjucks = require("nunjucks");
+
 const env = nunjucks.configure("templates", { autoescape: true });
 
 const runCommand = require("./utils/runCommand");
+
+const noop = () => { };
 
 async function sleep(ms) {
   return new Promise((r) => {
@@ -18,6 +21,8 @@ async function sleep(ms) {
 function randomIntFromInterval(min, max) {
   return Math.floor(Math.random() * (max - min + 1) + min);
 }
+
+// fsPromises.chown(path, uid, gid)
 
 /**
  *
