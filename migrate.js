@@ -11,7 +11,11 @@ const zlib = require('node:zlib');
 const tar = require('tar-fs');
 const stream = require('node:stream/promises');
 
-const linuxUser = require('linux-sys-user').promise();
+let linuxUser;
+
+if (process.platform === 'linux') {
+  linuxUser = require('linux-sys-user').promise();
+}
 
 const env = nunjucks.configure("templates", { autoescape: true });
 
@@ -171,6 +175,8 @@ async function createFluxdContext() {
 }
 
 async function createUsers(users) {
+  if (!process.platform === 'linux') return;
+
   users.forEach(async (user) => {
     await linuxUser.addUser({ username: user, shell: null, system: true }).catch(noop);
   });
@@ -220,19 +226,23 @@ async function configureServices() {
 
 async function installNodeJs(baseInstallDir, version, platform, arch, compression) {
   const base = 'https://nodejs.org/dist';
-  const url = `${base}/${version}/node-${version}-${platform}-${arch}.tar.${compression}`;
-  const installDir = path.join(baseInstallDir, 'lib', version);
+  const fullVersion = `node-${version}-${platform}-${arch}`;
+  const url = `${base}/${version}/${fullVersion}.tar.${compression}`;
+  const extractDir = path.join(baseInstallDir, 'lib');
+  const installDir = path.join(extractDir, fullVersion);
+  const binDir = path.join(baseInstallDir, 'bin');
+  const nodeExecutables = ['node', 'npm', 'npx'];
 
-  await fs.mkdir(installDir, { recursive: true, mode: 0o751 }).catch(noop);
+  await fs.mkdir(extractDir, { recursive: true, mode: 0o751 }).catch(noop);
+  await fs.mkdir(binDir, { recursive: true, mode: 0o751 }).catch(noop);
 
-  let error = false;
   let remainingAttempts = 3;
 
-  const workflow = [];
-
-  while (!error && remainingAttempts) {
+  while (remainingAttempts) {
     remainingAttempts -= 1;
-    const readStream = await axios({
+
+    const workflow = [];
+    const { data: readStream } = await axios({
       method: "get",
       url,
       responseType: "stream"
@@ -240,9 +250,11 @@ async function installNodeJs(baseInstallDir, version, platform, arch, compressio
 
     workflow.push(readStream);
     workflow.push(zlib.createGunzip());
-    workflow.push(tar.extract(installDir));
+    workflow.push(tar.extract(extractDir));
 
     const work = stream.pipeline.apply(null, workflow);
+
+    let error = false;
 
     try {
       await work;
@@ -250,7 +262,14 @@ async function installNodeJs(baseInstallDir, version, platform, arch, compressio
       console.log(`Stream error: ${err.code}`);
       error = true;
     }
+
+    if (!error) break;
   }
+
+  // we haven't checked the above error
+  nodeExecutables.forEach(async (executable) => {
+    await fs.symlink(path.join(installDir, 'bin', executable), path.join(binDir, executable)).catch(noop);
+  });
 }
 
 async function migrate() {
@@ -273,9 +292,10 @@ async function migrate() {
     return;
   }
 
+  const { platform, arch } = process;
+
+  await installNodeJs('/opt/nodejstest', 'v20.13.1', platform, arch, 'gz');
   await configureServices();
   await createServices();
   await systemdDaemonReload();
 }
-
-installNodeJs('/opt/nodejstest', 'v20.13.1', 'linux', 'x64', 'gz');
