@@ -90,6 +90,4 @@ async function runCommand(userCmd, options = {}) {
   return res;
 }
 
-module.exports = {
-  runCommand
-}
+module.exports = runCommand;

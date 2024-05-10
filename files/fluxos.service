@@ -1,5 +1,6 @@
 [Unit]
 Description=FluxOS Control Process
+PartOf=flux.target
 After=syncthing.service mongod.service containerd.service
 Wants=syncthing.service mongod.service containerd.service
 

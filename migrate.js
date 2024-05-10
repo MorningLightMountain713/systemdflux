@@ -6,6 +6,8 @@ const http = require("http");
 const axios = require("axios");
 const userid = require('userid');
 const nunjucks = require("nunjucks");
+const xml = require("fast-xml-parser");
+
 
 const zlib = require('node:zlib');
 const tar = require('tar-fs');
@@ -32,8 +34,6 @@ async function sleep(ms) {
 function randomIntFromInterval(min, max) {
   return Math.floor(Math.random() * (max - min + 1) + min);
 }
-
-// fsPromises.chown(path, uid, gid)
 
 /**
  *
@@ -132,31 +132,42 @@ async function readFile(name) {
   return await fs.readFile(path.join(base, name)).catch(() => "");
 }
 
-async function writeService(name, options = {}) {
-  const isTemplate = options.isTemplate || false;
-  const context = options.context || {};
+async function writeService(serviceName, options = {}) {
+  const isTarget = options.isTarget || false;
+  const context = options.context || null;
 
-  const content = isTemplate ? generateTemplate(name) : await readFile(name);
+  const name = isTarget ? `${serviceName}.target` : `${serviceName}.service`;
+
+  const content = context ? generateTemplate(name, context) : await readFile(name);
 
   await writeServiceFile(name, content);
 }
+
+async function enableServices() {
+  const services = ['syncthing', 'fluxos', 'fluxbenchd', 'fluxd'];
+  services.forEach(async (service) => {
+    await runCommand('systemctl', { params: ['enable', service] });
+  })
+};
 
 async function createServices() {
   await writeService("syncthing");
   await writeService("fluxos");
   await writeService("fluxbenchd", {
-    isTemplate: true,
     context: { datadir: "/usr/local/fluxbenchd" },
   });
   await writeService("fluxd", {
-    isTemplate: true,
     context: { datadir: "/usr/local/fluxd" },
+  });
+  await writeService("flux", {
+    isTarget: true,
   });
 }
 
 async function createFluxdContext() {
   const rpcUser = createRandomString(8);
   const rpcPassword = createRandomString(20);
+  // this will hang forever.
   const externalIp = await getExternalIp();
   const fluxPrivateKey = process.env.FLUX_PRIVATE_KEY;
   const fluxLockupTxid = process.env.FLUX_LOCKUP_TXID;
@@ -230,8 +241,16 @@ async function installNodeJs(baseInstallDir, version, platform, arch, compressio
   const url = `${base}/${version}/${fullVersion}.tar.${compression}`;
   const extractDir = path.join(baseInstallDir, 'lib');
   const installDir = path.join(extractDir, fullVersion);
+  const versionFile = path.join(baseInstallDir, 'version');
   const binDir = path.join(baseInstallDir, 'bin');
   const nodeExecutables = ['node', 'npm', 'npx'];
+
+  const installedVersion = await fs.readFile(versionFile).catch(() => '');
+
+  if (installedVersion === version) {
+    console.log(`NodeJS version: ${version} already installed`);
+    return;
+  }
 
   await fs.mkdir(extractDir, { recursive: true, mode: 0o751 }).catch(noop);
   await fs.mkdir(binDir, { recursive: true, mode: 0o751 }).catch(noop);
@@ -268,8 +287,42 @@ async function installNodeJs(baseInstallDir, version, platform, arch, compressio
 
   // we haven't checked the above error
   nodeExecutables.forEach(async (executable) => {
-    await fs.symlink(path.join(installDir, 'bin', executable), path.join(binDir, executable)).catch(noop);
+    const target = path.join(installDir, 'bin', executable);
+    const name = path.join(binDir, executable);
+
+    await fs.rm(name, { force: true }).catch(noop);
+    await fs.symlink(target, name).catch(noop);
   });
+
+  await fs.writeFile(versionFile, version).catch(noop);
+}
+
+async function generateSyncthingconfig() {
+  const apiPort = process.env.FLUX_API_PORT;
+  const syncthingDir = '/usr/local/syncthing';
+
+  await runCommand('syncthing', { params: ['generate', '--home', syncthingDir, '--no-default-folder'] });
+  const configPath = path.join(syncthingDir, 'config.xml');
+
+  const rawConfig = await fs.readFile(configPath);
+
+  const options = {
+    ignoreAttributes: false,
+    format: true,
+    attributeNamePrefix: "@_"
+  };
+  const parser = new xml.XMLParser(options);
+  const parsedConfig = parser.parse(rawConfig);
+
+  parsedConfig.gui['@_enabled'] = false;
+  parsedConfig.options = [`tcp://:${apiPort}`, `quic://:${apiPort}`];
+
+  const builder = new xml.XMLBuilder(options);
+  const xmlConfig = builder.build(parsedConfig);
+  await fs.writeFile(configPath, xmlConfig).catch(noop);
+
+  const { uid, gid } = userid.ids('syncthing');
+  await fs.chown(configPath, uid, gid).catch(noop);
 }
 
 async function migrate() {
@@ -295,7 +348,12 @@ async function migrate() {
   const { platform, arch } = process;
 
   await installNodeJs('/opt/nodejstest', 'v20.13.1', platform, arch, 'gz');
+  await generateSyncthingconfig();
   await configureServices();
   await createServices();
   await systemdDaemonReload();
+  await enableServices()
+  // await startServices();
 }
+
+migrate();

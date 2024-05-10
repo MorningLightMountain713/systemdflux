@@ -1,0 +1,8 @@
+[Unit]
+Description=Flux group target
+After=network-online.target
+Wants=containerd.service
+Wants=syncthing.service
+Wants=fluxbenchd.service
+Wants=fluxd.service
+Wants=fluxos.service
