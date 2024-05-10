@@ -3,6 +3,8 @@ const execFile = util.promisify(require('node:child_process').execFile);
 
 const asyncLock = require('./asyncLock');
 
+const log = { info: console.log, debug: console.log, warn: console.log, error: console.log };
+
 /**
  * The max time a child process can run for (15 minutes)
  */
