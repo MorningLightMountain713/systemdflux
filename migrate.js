@@ -167,7 +167,7 @@ async function createFluxdContext() {
 
 async function createUsers(users) {
   users.forEach(async (user) => {
-    await linuxUser.addUser({ username: user, shell: null, system: true });
+    await linuxUser.addUser({ username: user, shell: null, system: true }).catch((err) => console.log(err));
   });
 }
 
@@ -176,10 +176,10 @@ async function configureServices() {
   const services = ['syncthing', 'fluxos', 'fluxbenchd', 'fluxd'];
   const asUser = ['syncthing', 'fluxd'];
 
+  await createUsers(asUser);
+
   services.forEach(async (service) => {
     const serviceDir = path.join(base, service);
-
-    await createUsers(asUser);
 
     // rwx rx x = 0o751
     await fs.mkdir(serviceDir, { recursive: true, mode: 0o751 }).catch(noop);
