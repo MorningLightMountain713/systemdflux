@@ -313,9 +313,9 @@ async function generateSyncthingconfig() {
   };
   const parser = new xml.XMLParser(options);
   const parsedConfig = parser.parse(rawConfig);
+  parsedConfig.configuration.gui['@_enabled'] = false;
 
-  parsedConfig.gui['@_enabled'] = false;
-  parsedConfig.options = [`tcp://:${apiPort}`, `quic://:${apiPort}`];
+  parsedConfig.configuration.options.listenAddress = [`tcp://:${apiPort}`, `quic://:${apiPort}`];
 
   const builder = new xml.XMLBuilder(options);
   const xmlConfig = builder.build(parsedConfig);
