@@ -1,0 +1,22 @@
+[Unit]
+Description=Fluxd Service
+After=fluxbenchd.service
+Wants=fluxbenchd.service
+
+[Service]
+Type=exec
+
+User=fluxd
+Group=fluxd
+
+ExecStart=/usr/local/bin/fluxd -datadir={{ datadir }}
+PrivateTmp=true
+
+Restart=always
+RestartSec=15s
+
+TimeoutStopSec=60s
+TimeoutStartSec=15s
+
+[Install]
+WantedBy=multi-user.target

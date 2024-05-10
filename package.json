@@ -1,0 +1,26 @@
+{
+  "name": "systemdflux",
+  "version": "0.0.1",
+  "description": "Migrates fluxOS to full systemd model",
+  "main": "migrate.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "npx babel fluxos.js -d dist"
+  },
+  "author": "David White",
+  "license": "ISC",
+  "devDependencies": {
+    "@babel/cli": "^7.24.5",
+    "@babel/core": "^7.24.5",
+    "@babel/plugin-proposal-decorators": "^7.24.1",
+    "@babel/plugin-transform-class-properties": "^7.24.1",
+    "@babel/plugin-transform-class-static-block": "^7.24.4",
+    "@babel/plugin-transform-object-rest-spread": "^7.24.5",
+    "@babel/preset-env": "^7.24.5"
+  },
+  "dependencies": {
+    "axios": "^1.6.8",
+    "nunjucks": "^3.2.4",
+    "unix-dgram": "^2.0.6"
+  }
+}

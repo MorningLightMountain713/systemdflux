@@ -1,0 +1,56 @@
+[Unit]
+Description=FluxOS Control Process
+After=syncthing.service
+Wants=syncthing.service
+
+# If the service is unsucessfully started 4 times within 5 minutes - reboot.
+StartLimitIntervalSec=300
+StartLimitBurst=4
+# gracefull reboot
+# turn this off for testing!!
+# StartLimitAction=reboot
+
+[Service]
+Environment=PATH=/opt/nodejs/bin
+
+User=root
+Group=root
+
+# Type=notify-reload - reload isn't available until systemd 253.
+Type=notify
+# only main process can use notify socket at /run/systemd/notify
+NotifyAccess=main
+ExecStart=/opt/nodejs/bin/node /opt/fluxos/dist/fluxos.js
+
+# Use this on systemd < 253, where we can't use notify-reload
+# $MAINPID is systemd builtin
+ExecReload=/usr/bin/kill -SIGHUP $MAINPID
+
+# expect a response via sd-notify every 10 seconds
+WatchdogSec=10s
+
+Restart=on-failure
+RestartSec=30s
+
+
+
+
+# RuntimeDirectory=mongodb
+# file size
+LimitFSIZE=infinity
+# cpu time
+LimitCPU=infinity
+# virtual memory size
+LimitAS=infinity
+# open files
+LimitNOFILE=64000
+# processes/threads
+LimitNPROC=64000
+# locked memory
+LimitMEMLOCK=infinity
+# total threads (user+kernel)
+TasksMax=infinity
+TasksAccounting=false
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,23 @@
+[Unit]
+Description=Fluxbenchd Service
+After=fluxos.service
+Wants=fluxos.service
+
+[Service]
+Type=exec
+
+User=root
+Group=root
+
+#ExecStart=/usr/local/bin/fluxbenchd -datadir={{ datadir }}
+ExecStart=/usr/local/bin/fluxbenchd -datadir=/opt/fluxbench
+PrivateTmp=true
+
+Restart=always
+RestartSec=3s
+
+TimeoutStopSec=15s
+TimeoutStartSec=15s
+
+[Install]
+WantedBy=multi-user.target
