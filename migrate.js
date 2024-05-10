@@ -230,7 +230,7 @@ async function installNodeJs(baseInstallDir, version, platform, arch, compressio
 
   const workflow = [];
 
-  while (!complete && remainingAttempts) {
+  while (!error && remainingAttempts) {
     remainingAttempts -= 1;
     const stream = await axios({
       method: "get",
