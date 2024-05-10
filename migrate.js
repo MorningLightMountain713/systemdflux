@@ -6,6 +6,8 @@ const axios = require("axios");
 const userid = require('userid');
 const nunjucks = require("nunjucks");
 
+const linuxUser = require('linux-sys-user').promise();
+
 const env = nunjucks.configure("templates", { autoescape: true });
 
 const runCommand = require("./utils/runCommand");
@@ -43,7 +45,7 @@ function validIpv4Address(ip) {
 /**
  * Loops forever until external ip address is found. Chooses a random
  * provider from the provider list, then loops the list.
- * @returns {String}
+ * @returns {Promise<String>}
  */
 async function getExternalIp() {
   const scheme = "https";
@@ -163,6 +165,12 @@ async function createFluxdContext() {
   return context;
 }
 
+async function createUsers(users) {
+  users.forEach(async (user) => {
+    await linuxUser.addUser({ username: user, shell: null, system: true });
+  });
+}
+
 async function configureServices() {
   const base = "/usr/local";
   const services = ['syncthing', 'fluxos', 'fluxbenchd', 'fluxd'];
@@ -170,6 +178,8 @@ async function configureServices() {
 
   services.forEach(async (service) => {
     const serviceDir = path.join(base, service);
+
+    await createUsers(asUser);
 
     // rwx rx x = 0o751
     await fs.mkdir(serviceDir, { recursive: true, mode: 0o751 }).catch(noop);
