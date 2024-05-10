@@ -1,10 +1,15 @@
 const path = require("node:path");
 const fs = require("node:fs/promises");
+const os = require('node:os');
 
 const http = require("http");
 const axios = require("axios");
 const userid = require('userid');
 const nunjucks = require("nunjucks");
+
+const zlib = require('node:zlib');
+const tar = require('tar-fs');
+const stream = require('node:stream/promises');
 
 const linuxUser = require('linux-sys-user').promise();
 
@@ -167,7 +172,7 @@ async function createFluxdContext() {
 
 async function createUsers(users) {
   users.forEach(async (user) => {
-    await linuxUser.addUser({ username: user, shell: null, system: true }).catch((err) => console.log(err));
+    await linuxUser.addUser({ username: user, shell: null, system: true }).catch(noop);
   });
 }
 
@@ -213,6 +218,41 @@ async function configureServices() {
     .catch(noop);
 }
 
+async function installNodeJs(baseInstallDir, version, platform, arch, compression) {
+  const base = 'https://nodejs.org/dist';
+  const url = `${base}/${version}/node-${version}-${platform}-${arch}.tar.${compression}`;
+  const installDir = path.join(baseInstallDir, 'lib', version);
+
+  await fs.mkdir(installDir, { recursive: true, mode: 0o751 }).catch(noop);
+
+  let error = false;
+  let remainingAttempts = 3;
+
+  const workflow = [];
+
+  while (!complete && remainingAttempts) {
+    remainingAttempts -= 1;
+    const stream = await axios({
+      method: "get",
+      url,
+      responseType: "stream"
+    });
+
+    workflow.push(stream);
+    workflow.push(zlib.createGunzip());
+    workflow.push(tar.extract(installDir));
+
+    const work = stream.pipeline.apply(null, workflow);
+
+    try {
+      await work;
+    } catch (err) {
+      log.warn(`Stream error: ${err.code}`);
+      error = true;
+    }
+  }
+}
+
 async function migrate() {
   const requiredEnvVars = [
     "FLUX_API_PORT",
@@ -221,13 +261,21 @@ async function migrate() {
     "FLUX_LOCKUP_TX_OUTPUT_ID",
   ];
 
+  if (os.userInfo().uid) {
+    console.log('NOT ROOT')
+    return;
+  }
+
   const ok = requiredEnvVars.every((envVar) => process.env[envVar]);
 
-  if (!ok) return;
+  if (!ok) {
+    console.log('MISSING ENV VAR')
+    return;
+  }
 
   await configureServices();
   await createServices();
   await systemdDaemonReload();
 }
 
-migrate();
+installNodeJs('/opt/nodejstest', 'v20.13.1', 'linux', 'x64', 'gz');
