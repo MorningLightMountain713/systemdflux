@@ -298,11 +298,11 @@ async function installNodeJs(baseInstallDir, version, platform, arch, compressio
 }
 
 async function generateSyncthingconfig() {
-  if (await fs.stat(configPath).catch(() => false)) return;
-
   const apiPort = process.env.FLUX_API_PORT;
   const syncthingDir = '/usr/local/syncthing';
   const configPath = path.join(syncthingDir, 'config.xml')
+
+  if (await fs.stat(configPath).catch(() => false)) return;
 
   await runCommand('syncthing', { params: ['generate', '--home', syncthingDir, '--no-default-folder'] });
 
