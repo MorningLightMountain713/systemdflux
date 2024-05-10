@@ -165,11 +165,24 @@ async function createFluxdContext() {
 
 async function configureServices() {
   const base = "/usr/local";
+  const services = ['syncthing', 'fluxos', 'fluxbenchd', 'fluxd'];
+  const asUser = ['syncthing', 'fluxd'];
 
-  await fs.mkdir(path.join(base, "syncthing")).catch(noop);
-  await fs.mkdir(path.join(base, "fluxos")).catch(noop);
-  await fs.mkdir(path.join(base, "fluxbenchd")).catch(noop);
-  await fs.mkdir(path.join(base, "fluxd")).catch(noop);
+  services.forEach(async (service) => {
+    const serviceDir = path.join(base, service);
+
+    // rwx rx x = 0o751
+    await fs.mkdir(serviceDir, { recursive: true, mode: 0o751 }).catch(noop);
+
+    if (asUser.includes(service)) {
+      try {
+        const { uid, gid } = userid.ids(service);
+        await fs.chown(serviceDir, uid, gid);
+      } catch {
+        // create user?
+      }
+    }
+  });
 
   const fluxbenchConf = "fluxbench.conf";
   const fluxConf = "flux.conf";
