@@ -232,13 +232,13 @@ async function installNodeJs(baseInstallDir, version, platform, arch, compressio
 
   while (!error && remainingAttempts) {
     remainingAttempts -= 1;
-    const stream = await axios({
+    const readStream = await axios({
       method: "get",
       url,
       responseType: "stream"
     });
 
-    workflow.push(stream);
+    workflow.push(readStream);
     workflow.push(zlib.createGunzip());
     workflow.push(tar.extract(installDir));
 
