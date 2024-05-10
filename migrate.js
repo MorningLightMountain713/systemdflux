@@ -247,7 +247,7 @@ async function installNodeJs(baseInstallDir, version, platform, arch, compressio
     try {
       await work;
     } catch (err) {
-      log.warn(`Stream error: ${err.code}`);
+      console.log(`Stream error: ${err.code}`);
       error = true;
     }
   }
