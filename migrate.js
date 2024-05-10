@@ -80,9 +80,10 @@ async function getExternalIp() {
     providerIndex = (providerIndex + 1) % providerLength;
 
     if (!data) {
-      sleep(10_000);
+      await sleep(10_000);
     } else if (validIpv4Address(data)) ip = data;
   }
+  return ip;
 }
 
 function createRandomString(length) {
