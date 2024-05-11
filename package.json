@@ -26,6 +26,7 @@
     "simple-git": "^3.24.0",
     "tar-fs": "^3.0.6",
     "unix-dgram": "^2.0.6",
-    "userid": "^1.2.5"
+    "userid": "^1.2.5",
+    "why-is-node-running": "^2.2.2"
   }
 }

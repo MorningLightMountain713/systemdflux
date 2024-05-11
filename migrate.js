@@ -1,3 +1,5 @@
+const log = require('why-is-node-running')
+
 const path = require("node:path");
 const fs = require("node:fs/promises");
 const os = require('node:os');
@@ -251,7 +253,7 @@ async function installFluxOs(nodejsVersion) {
   let fluxosTag = null;
 
   while (!fluxosTag) {
-    const { data: tag_name } = await axios
+    const { data: { tag_name } } = await axios
       .get(urlFluxLatestTag, { timeout: 5_000 })
       .catch(() => ({ data: { tag_name: null } }));
 
@@ -263,17 +265,21 @@ async function installFluxOs(nodejsVersion) {
   if (localVersion === fluxosTag) return;
 
   // could read the nodejs version file here instead of passing in the nodejs version
-  const fluxosLibDir = path.join(fluxosDir, nodejsVersion, fluxosTag);
+  const fluxosLibDir = path.join(fluxosDir, 'lib', nodejsVersion, fluxosTag);
   await fs.mkdir(fluxosLibDir, { recursive: true }).catch(noop);
 
   const git = simpleGit(options);
-  const err = await git.clone('https://github.com/runonflux/flux.git', fluxosLibDir, { '--depth': 1, '--branch': tag }).catch((err) => err);
+  const err = await git.clone('https://github.com/runonflux/flux.git', fluxosLibDir, { '--depth': 1, '--branch': fluxosTag }).catch((err) => err);
 
   if (err) return;
 
   await runCommand(npm, { cwd: fluxosLibDir, params: ['install'] });
 
+  console.log('about to symlink');
   await fs.symlink(fluxosLibDir, '/usr/local/fluxos/current').catch(noop);
+  setTimeout(function () {
+    log() // logs out active handles that are keeping node running
+  }, 5_000)
 
 }
 
@@ -401,4 +407,4 @@ async function migrate() {
 }
 
 // migrate();
-installFluxOs()
+installFluxOs('v20.13.1');
