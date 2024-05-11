@@ -21,7 +21,7 @@ Group=root
 Type=notify
 # only main process can use notify socket at /run/systemd/notify
 NotifyAccess=main
-ExecStart=/opt/nodejs/bin/node /opt/fluxos/dist/fluxos.js
+ExecStart=/opt/nodejs/bin/node /usr/local/fluxos/current/fluxos.js
 
 # Use this on systemd < 253, where we can't use notify-reload
 # $MAINPID is systemd builtin

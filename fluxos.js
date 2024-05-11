@@ -1,3 +1,5 @@
+const path = require('node:path');
+
 const unix = require('unix-dgram');
 const userid = require('userid');
 const { fork } = require('node:child_process');
@@ -158,6 +160,9 @@ class FluxOSWatcher {
   fluxOs = null;
 
   constructor() {
+    this.startFunction = this.startFunction.bind(this);
+    this.reloadFunction = this.reloadFunction.bind(this);
+
     this.notifier = new SystemdNotify(this.startFunction, this.reloadFunction);
     this.notifier.start();
   }
@@ -175,13 +180,15 @@ class FluxOSWatcher {
     const cwd = '/usr/local/fluxos/current';
     const app = path.join(cwd, 'app.js');
     // spawn as root until we can remove all sudo etc, otherwise set uid, gid;
-    this.fluxos = fork(app, [], { cwd, stdio: ['pipe', 'pipe', 'pipe', 'ipc'], });
-    fluxos.on('error', (err) => {
+    const fluxOs = fork(app, [], { cwd, stdio: ['pipe', 'pipe', 'pipe', 'ipc'], });
+    fluxOs.on('error', (err) => {
+      // do stuff
+      console.log(err);
+    });
+    fluxOs.on('message', (msg) => {
       // do stuff
     });
-    fluxos.on('message', (msg) => {
-      // do stuff
-    });
+    this.fluxOs = fluxOs;
   }
 
   async startFunction() {

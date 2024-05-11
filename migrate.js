@@ -392,7 +392,14 @@ async function migrate() {
   await systemdDaemonReload();
   await enableServices()
   // await startServices();
+  // copy userconfig
 }
 
 // migrate();
 installFluxOs('v20.13.1');
+
+
+// issues to fix
+
+// userconfig
+// it's looking for flux config file...
