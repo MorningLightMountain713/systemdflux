@@ -1,4 +1,6 @@
 const unix = require('unix-dgram');
+const userid = require('userid');
+const { fork } = require('node:child_process');
 
 /**
  * systemctl stop:
@@ -152,21 +154,51 @@ class SystemdNotify {
   }
 }
 
-async function startFunction() {
-  console.log('MOCK INIT MAIN FUNCTION (SLEEP 3 SECONDS)');
-  await new Promise(r => setTimeout(r, 3_000));
-  console.log('MOCK MAIN FUNCTION RUNNING');
-}
+class FluxOSWatcher {
+  fluxOs = null;
 
-async function reloadFunction() {
-  console.log('MOCK RELOAD MAIN FUNCTION (SLEEP 3 SECONDS');
-  await new Promise(r => setTimeout(r, 3_000));
-  console.log('MOCK MAIN FUNCTION RELOADED');
+  constructor() {
+    this.notifier = new SystemdNotify(this.startFunction, this.reloadFunction);
+    this.notifier.start();
+  }
+
+  // KillMode= defaults to control-group. That means every process of your service is killed with SIGTERM.
+
+  // You have two options:
+
+  // Handle SIGTERM in each of your processes and shutdown within TimeoutStopSec (which defaults to 90 seconds)
+  // If you really want to delegate the shutdown from your main process, set KillMode=mixed. SIGTERM will be sent to the main process only. Then again shutdown within TimeoutStopSec. If you do not shutdown within TimeoutStopSec, systemd will send SIGKILL to all your processes.
+  // Note: I suggest to use KillMode=mixed in option 2 instead of KillMode=process, as the latter would send the final SIGKILL only to your main process, which means your sub-processes would not be killed if they've locked up.
+
+  spawnFluxMainProcess() {
+    console.log('STARTING FLUxOS');
+    const cwd = '/usr/local/fluxos/current';
+    const app = path.join(cwd, 'app.js');
+    // spawn as root until we can remove all sudo etc, otherwise set uid, gid;
+    this.fluxos = fork(app, [], { cwd, stdio: ['pipe', 'pipe', 'pipe', 'ipc'], });
+    fluxos.on('error', (err) => {
+      // do stuff
+    });
+    fluxos.on('message', (msg) => {
+      // do stuff
+    });
+  }
+
+  async startFunction() {
+    this.spawnFluxMainProcess();
+    // spawn other flux subprocesses here
+  }
+
+  async reloadFunction() {
+    console.log('MOCK RELOAD MAIN FUNCTION (SLEEP 3 SECONDS');
+    await new Promise(r => setTimeout(r, 3_000));
+    console.log('MOCK MAIN FUNCTION RELOADED');
+  }
 }
 
 async function init() {
-  const notifier = new SystemdNotify(startFunction, reloadFunction);
-  notifier.start();
+
+
 }
 
 init();

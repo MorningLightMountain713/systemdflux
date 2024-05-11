@@ -23,6 +23,7 @@
     "fast-xml-parser": "^4.3.6",
     "linux-sys-user": "^1.2.0",
     "nunjucks": "^3.2.4",
+    "simple-git": "^3.24.0",
     "tar-fs": "^3.0.6",
     "unix-dgram": "^2.0.6",
     "userid": "^1.2.5"

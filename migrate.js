@@ -4,6 +4,7 @@ const os = require('node:os');
 
 const http = require("http");
 const axios = require("axios");
+const simpleGit = require('simple-git');
 const userid = require('userid');
 const nunjucks = require("nunjucks");
 const xml = require("fast-xml-parser");
@@ -65,25 +66,23 @@ async function getExternalIp() {
   const httpAgent = new http.Agent({ family: 4 });
 
   const config = {
-    timeout: 5000,
+    timeout: 5_000,
     httpAgent,
   };
 
-  let ip = null;
-
-  while (!ip) {
+  while (true) {
     const provider = providers.slice(providerIndex, 1);
     const { data } = await axios
       .get(`${scheme}://${provider}`, config)
       .catch(() => ({ data: null }));
 
-    providerIndex = (providerIndex + 1) % providerLength;
+    if (data && validIpv4Address(data)) {
+      return data;
+    }
 
-    if (!data) {
-      await sleep(10_000);
-    } else if (validIpv4Address(data)) ip = data;
+    providerIndex = (providerIndex + 1) % providerLength;
+    await sleep(10_000);
   }
-  return ip;
 }
 
 function createRandomString(length) {
@@ -236,6 +235,48 @@ async function configureServices() {
     .catch(noop);
 }
 
+async function installFluxOs(nodejsVersion) {
+  const options = {
+    baseDir: '/usr/local',
+    binary: 'git',
+    maxConcurrentProcesses: 6,
+    trimmed: false,
+  };
+
+  const urlFluxLatestTag = 'https://api.github.com/repos/runonflux/flux/releases/latest';
+  const fluxosDir = '/usr/local/fluxos';
+  const versionFile = path.join(fluxosDir, 'version');
+  const npm = '/opt/nodejs/bin/npm';
+
+  let fluxosTag = null;
+
+  while (!fluxosTag) {
+    const { data: tag_name } = await axios
+      .get(urlFluxLatestTag, { timeout: 5_000 })
+      .catch(() => ({ data: { tag_name: null } }));
+
+    fluxosTag = tag_name ? tag_name : await sleep(10_000);
+  }
+
+  const localVersion = await fs.readFile(versionFile).catch(() => '');
+
+  if (localVersion === fluxosTag) return;
+
+  // could read the nodejs version file here instead of passing in the nodejs version
+  const fluxosLibDir = path.join(fluxosDir, nodejsVersion, fluxosTag);
+  await fs.mkdir(fluxosLibDir, { recursive: true }).catch(noop);
+
+  const git = simpleGit(options);
+  const err = await git.clone('https://github.com/runonflux/flux.git', fluxosLibDir, { '--depth': 1, '--branch': tag }).catch((err) => err);
+
+  if (err) return;
+
+  await runCommand(npm, { cwd: fluxosLibDir, params: ['install'] });
+
+  await fs.symlink(fluxosLibDir, '/usr/local/fluxos/current').catch(noop);
+
+}
+
 async function installNodeJs(baseInstallDir, version, platform, arch, compression) {
   const base = 'https://nodejs.org/dist';
   const fullVersion = `node-${version}-${platform}-${arch}`;
@@ -359,4 +400,5 @@ async function migrate() {
   // await startServices();
 }
 
-migrate();
+// migrate();
+installFluxOs()
