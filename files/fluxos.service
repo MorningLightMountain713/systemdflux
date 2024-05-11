@@ -12,7 +12,8 @@ StartLimitBurst=4
 # StartLimitAction=reboot
 
 [Service]
-Environment=PATH=/opt/nodejs/bin
+# Environment=PATH=/opt/nodejs/bin
+Environment=FLUXD_CONFIG_PATH=/usr/local/fluxd/flux.conf
 
 User=root
 Group=root
