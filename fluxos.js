@@ -171,7 +171,7 @@ class FluxOSWatcher {
   // Note: I suggest to use KillMode=mixed in option 2 instead of KillMode=process, as the latter would send the final SIGKILL only to your main process, which means your sub-processes would not be killed if they've locked up.
 
   spawnFluxMainProcess() {
-    console.log('STARTING FLUxOS');
+    console.log('STARTING FluxOS');
     const cwd = '/usr/local/fluxos/current';
     const app = path.join(cwd, 'app.js');
     // spawn as root until we can remove all sudo etc, otherwise set uid, gid;
@@ -197,8 +197,7 @@ class FluxOSWatcher {
 }
 
 async function init() {
-
-
+  const watcher = new FluxOSWatcher();
 }
 
 init();
