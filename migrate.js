@@ -260,7 +260,7 @@ async function installFluxOs(nodejsVersion) {
   await fs.mkdir(fluxosLibDir, { recursive: true }).catch(noop);
 
   const git = simpleGit();
-  const err = await git.clone('https://github.com/runonflux/flux.git', fluxosLibDir, { '--depth': 1, '--branch': 'feature/migration' }).catch((err) => err);
+  const err = await git.clone('https://github.com/runonflux/flux.git', fluxosLibDir, { '--depth': 1, '--branch': fluxosTag }).catch((err) => err);
   delete git;
 
   if (err) return;
@@ -347,6 +347,7 @@ async function generateSyncthingconfig() {
   const options = {
     ignoreAttributes: false,
     format: true,
+    allowBooleanAttributes: true,
     attributeNamePrefix: "@_"
   };
   const parser = new xml.XMLParser(options);

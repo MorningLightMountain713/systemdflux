@@ -14,6 +14,7 @@ StartLimitBurst=4
 [Service]
 # Environment=PATH=/opt/nodejs/bin
 Environment=FLUXD_CONFIG_PATH=/usr/local/fluxd/flux.conf
+Environment=SYNCTHING_CONFIG_PATH=/usr/local/syncthing/config.xml
 
 User=root
 Group=root

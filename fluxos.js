@@ -1,8 +1,10 @@
 const path = require('node:path');
+const { fork } = require('node:child_process');
 
 const unix = require('unix-dgram');
 const userid = require('userid');
-const { fork } = require('node:child_process');
+const xml = require("fast-xml-parser");
+
 
 /**
  * systemctl stop:
@@ -28,6 +30,7 @@ The signal to send can be tweaked via ReloadSignal=, see below.
  */
 
 const noop = () => { };
+const sleep = (ms) => new Promise((r) => { setTimeout(r, ms) });
 
 function sendReloadingIfSupported(target, context) {
   // const {name, addInitializer} = context;
@@ -175,33 +178,104 @@ class FluxOSWatcher {
   // If you really want to delegate the shutdown from your main process, set KillMode=mixed. SIGTERM will be sent to the main process only. Then again shutdown within TimeoutStopSec. If you do not shutdown within TimeoutStopSec, systemd will send SIGKILL to all your processes.
   // Note: I suggest to use KillMode=mixed in option 2 instead of KillMode=process, as the latter would send the final SIGKILL only to your main process, which means your sub-processes would not be killed if they've locked up.
 
-  spawnFluxMainProcess() {
+  async spawnFluxMainProcess() {
     console.log('STARTING FluxOS');
     const cwd = '/usr/local/fluxos/current';
     const app = path.join(cwd, 'app.js');
-    // spawn as root until we can remove all sudo etc, otherwise set uid, gid;
-    const fluxOs = fork(app, [], { cwd, stdio: ['pipe', 'pipe', 'pipe', 'ipc'], });
-    fluxOs.on('error', (err) => {
-      // do stuff
-      console.log(err);
+
+    const syncthingApiKey = await SyncthingApiKey();
+
+    if (!syncthingApiKey) return false;
+
+    return new Promise((resolve, reject) => {
+      const msgHandler = async (msg) => {
+        console.log('FluxOS child received message:', msg);
+        switch (msg.type) {
+          case 'READY':
+            resolve();
+            break;
+        }
+      }
+
+      // spawn as root until we can remove all sudo etc, otherwise set uid, gid;
+      const fluxOs = fork(app, [], { cwd, stdio: ['pipe', 'pipe', 'pipe', 'ipc'], });
+
+      fluxOs.on('close', (code) => {
+        console.log(`child process close all stdio with code ${code}`);
+      });
+
+      fluxOs.on('disconnect', (event) => {
+        console.log("Disconnected");
+      });
+
+      fluxOs.on('error', (err) => {
+        // do stuff
+        console.log("FluxOS childprocess error:", err);
+        reject();
+      });
+
+      fluxOs.on('exit', (code) => {
+        console.log(`child process exited with code ${code}`);
+        reject();
+      });
+
+      fluxOs.on('message', msgHandler);
+
+      fluxOs.on('spawn', () => {
+        console.log('FluxOS child spawned');
+      });
+
+      fluxOs.send({ type: syncthingApiKey, syncthingApiKey });
+
+      this.fluxOs = fluxOs;
     });
-    fluxOs.on('message', (msg) => {
-      // do stuff
-    });
-    this.fluxOs = fluxOs;
   }
 
   async startFunction() {
-    this.spawnFluxMainProcess();
-    // spawn other flux subprocesses here
+    while (true) {
+      const err = await this.spawnFluxMainProcess().catch(() => true);
+      if (!err) break;
+      await sleep(5_000);
+      // spawn other flux subprocesses here
+    }
   }
 
   async reloadFunction() {
     console.log('MOCK RELOAD MAIN FUNCTION (SLEEP 3 SECONDS');
-    await new Promise(r => setTimeout(r, 3_000));
+    await sleep(3_000);
     console.log('MOCK MAIN FUNCTION RELOADED');
   }
+
+  async SyncthingApiKey() {
+    const configPath = process.env.SYNCTHING_CONFIG_PATH;
+
+    if (!configPath) return '';
+
+    const rawConfig = await fs.readFile(configPath).catch(noop);
+
+    if (!rawConfig) return '';
+
+    const options = {
+      ignoreAttributes: false,
+      allowBooleanAttributes: true,
+      format: true,
+      attributeNamePrefix: "@_"
+    };
+
+    const parser = new xml.XMLParser(options);
+
+    let apiKey = '';
+    try {
+      const parsedConfig = parser.parse(rawConfig);
+      apiKey = parsedConfig.configuration.gui.apikey;
+    } catch (err) {
+      console.log(err);
+    }
+
+    return apiKey;
+  }
 }
+
 
 async function init() {
   const watcher = new FluxOSWatcher();
