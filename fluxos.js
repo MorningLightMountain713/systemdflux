@@ -1,5 +1,6 @@
 const path = require('node:path');
 const { fork } = require('node:child_process');
+const fs = require('node:fs/promises');
 
 const unix = require('unix-dgram');
 const userid = require('userid');
@@ -83,9 +84,11 @@ class SystemdNotify {
     process.on(this.reloadSignal, () => this.reloadHandler());
   }
 
-  @sendReloadingIfSupported
-  async reloadHandler() {
-    await this.reloadFunc();
+  // @sendReloadingIfSupported
+  reloadHandler() {
+    // removed the decorator syntax so we don't have to compile. Can look at adding
+    // decorators later.
+    sendReloadingIfSupported(this.reloadFunc());
   }
 
   /**
@@ -138,7 +141,7 @@ class SystemdNotify {
   startWatchdog() {
     this.watchdogTimer = setInterval(async () => {
       // not sure if await is right here, it probably doesn't matter.
-      console.log('WATCHDOGGING...');
+      console.log('DEBUG: Sending systemd notify watchdog message');
       await this.notify(['WATCHDOG=1']);
     }, this.watchdogHalflifeMs);
   }
@@ -183,12 +186,14 @@ class FluxOSWatcher {
     const cwd = '/usr/local/fluxos/current';
     const app = path.join(cwd, 'app.js');
 
-    const syncthingApiKey = await SyncthingApiKey();
+    const syncthingApiKey = await this.syncthingApiKey();
+
+    console.log('Syncthing key:', syncthingApiKey);
 
     if (!syncthingApiKey) return false;
 
     return new Promise((resolve, reject) => {
-      const msgHandler = async (msg) => {
+      const msgHandler = (msg) => {
         console.log('FluxOS child received message:', msg);
         switch (msg.type) {
           case 'READY':
@@ -205,11 +210,10 @@ class FluxOSWatcher {
       });
 
       fluxOs.on('disconnect', (event) => {
-        console.log("Disconnected");
+        console.log("FluxOS Disconnected");
       });
 
       fluxOs.on('error', (err) => {
-        // do stuff
         console.log("FluxOS childprocess error:", err);
         reject();
       });
@@ -225,7 +229,7 @@ class FluxOSWatcher {
         console.log('FluxOS child spawned');
       });
 
-      fluxOs.send({ type: syncthingApiKey, syncthingApiKey });
+      fluxOs.send({ type: 'syncthingApiKey', syncthingApiKey });
 
       this.fluxOs = fluxOs;
     });
@@ -246,20 +250,15 @@ class FluxOSWatcher {
     console.log('MOCK MAIN FUNCTION RELOADED');
   }
 
-  async SyncthingApiKey() {
+  async syncthingApiKey() {
     const configPath = process.env.SYNCTHING_CONFIG_PATH;
-
     if (!configPath) return '';
 
     const rawConfig = await fs.readFile(configPath).catch(noop);
-
     if (!rawConfig) return '';
 
     const options = {
-      ignoreAttributes: false,
-      allowBooleanAttributes: true,
-      format: true,
-      attributeNamePrefix: "@_"
+      ignoreAttributes: true,
     };
 
     const parser = new xml.XMLParser(options);
@@ -271,11 +270,9 @@ class FluxOSWatcher {
     } catch (err) {
       console.log(err);
     }
-
     return apiKey;
   }
 }
-
 
 async function init() {
   const watcher = new FluxOSWatcher();

@@ -7,6 +7,9 @@ Wants=fluxbenchd.service
 [Service]
 Type=exec
 
+# for the zcash-params
+Environment=HOME=/usr/local/fluxd
+
 User=fluxd
 Group=fluxd
 
