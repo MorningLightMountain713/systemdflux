@@ -10,8 +10,7 @@ Type=exec
 User=root
 Group=root
 
-#ExecStart=/usr/local/bin/fluxbenchd -datadir={{ datadir }}
-ExecStart=/usr/local/bin/fluxbenchd -datadir=/opt/fluxbench
+ExecStart=/usr/local/bin/fluxbenchd -datadir={{ datadir }}
 PrivateTmp=true
 
 Restart=always

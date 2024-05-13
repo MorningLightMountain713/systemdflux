@@ -229,15 +229,12 @@ async function configureServices(fluxosUserConfig, fluxdContext) {
 
   await fs
     .writeFile(path.join(base, 'fluxos', fluxosUserConf), fluxosRawConfig);
+
+  return { rpcUser, rpcPassword };
 }
 
 async function installFluxOs(nodejsVersion, nodejsInstallDir) {
   const urlFluxLatestTag = 'https://api.github.com/repos/runonflux/flux/releases/latest';
-  const fluxosDir = '/usr/local/fluxos';
-  // could read the nodejs version file here instead of passing in the nodejs version
-  const fluxosLibDir = path.join(fluxosDir, 'lib', nodejsVersion, fluxosTag);
-  const versionFile = path.join(fluxosDir, 'version');
-  const npm = path.join(nodejsInstallDir, 'bin/npm');
 
   let fluxosTag = null;
 
@@ -249,20 +246,33 @@ async function installFluxOs(nodejsVersion, nodejsInstallDir) {
     fluxosTag = tag_name ? tag_name : await sleep(10_000);
   }
 
+  const fluxosDir = '/usr/local/fluxos';
+  // could read the nodejs version file here instead of passing in the nodejs version
+  const fluxosLibDir = path.join(fluxosDir, 'lib', nodejsVersion, fluxosTag);
+  const versionFile = path.join(fluxosDir, 'version');
+  const npm = path.join(nodejsInstallDir, 'bin/npm');
+
   const localVersion = await fs.readFile(versionFile).catch(() => '');
 
   if (localVersion === fluxosTag) return fluxosLibDir;
 
-
   await fs.mkdir(fluxosLibDir, { recursive: true }).catch(noop);
+
+  // for testing new branch
+  fluxosTag = 'feature/migration';
 
   const git = simpleGit();
   const err = await git.clone('https://github.com/runonflux/flux.git', fluxosLibDir, { '--depth': 1, '--branch': fluxosTag }).catch((err) => err);
   delete git;
 
-  if (err) return;
+  if (err) {
+    console.log(err);
+    return fluxosLibDir;
+  }
 
   await runCommand(npm, { cwd: fluxosLibDir, params: ['install'] });
+
+  await fs.writeFile(versionFile, fluxosTag);
 
   return fluxosLibDir;
 }
@@ -285,10 +295,21 @@ async function linkBinaries(options) {
     });
   }
 
+  console.log("FLUXOS LIB DIR", fluxosLibDir)
   if (fluxosLibDir) {
-    const fluxosLinkDir = '/usr/local/fluxos/current';
+    const fluxosBase = '/usr/local/fluxos';
+    const fluxosUserConfigPath = path.join(fluxosBase, 'userconfig.js');
+    const fluxosLinkDir = path.join(fluxosBase, 'current');
+    const fluxosUserConfigLink = path.join(fluxosLinkDir, 'config', 'userconfig.js');
+
+    await fs.rm(fluxosUserConfigLink, { force: true }).catch(noop);
     await fs.rm(fluxosLinkDir, { force: true }).catch(noop);
+
+    console.log('from', fluxosUserConfigPath)
+    console.log('to', fluxosUserConfigLink)
+
     await fs.symlink(fluxosLibDir, fluxosLinkDir).catch(noop);
+    await fs.symlink(fluxosUserConfigPath, fluxosUserConfigLink);
   }
 }
 
@@ -398,7 +419,7 @@ async function getFluxosConfig(fluxosConfigPath) {
     return null;
   }
 
-  const { apiport: fluxApiPort } = fluxosConfig;
+  const { apiport: fluxApiPort } = fluxosConfig?.default?.initial;
 
   if (!fluxApiPort) {
     console.log('Unable to retrieve apiport, migration not possible');
@@ -475,6 +496,7 @@ async function install(nodejsVersion, options = {}) {
 
   const { platform, arch } = process;
   const nodejsBaseDir = '/opt/nodejs';
+  let fluxdRpcCredentials = null;
 
   if (migrate) {
     if (!fluxdConfigPath || !fluxosConfigPath) {
@@ -484,23 +506,31 @@ async function install(nodejsVersion, options = {}) {
 
     const fluxdConfig = await getFluxdConfig(fluxdConfigPath);
 
-    if (!fluxdConfig) return null;
+    if (!fluxdConfig) {
+      console.log('no fluxd config')
+      return null;
+    }
 
-    const fluxosUserConfig = getFluxosConfig(fluxosConfigPath);
+    const fluxosUserConfig = await getFluxosConfig(fluxosConfigPath);
 
-    if (!fluxosUserConfig) return null;
+    if (!fluxosUserConfig) {
+      console.log('no fluxos config')
+      return null;
+    }
 
-    const syncthingPort = +fluxosUserConfig.apiPort + 2;
+    const syncthingPort = +fluxosUserConfig.fluxApiPort + 2;
 
     await generateSyncthingconfig(syncthingPort);
-    await configureServices(fluxosUserConfig, fluxdConfig);
+
+    fluxdRpcCredentials = await configureServices(fluxosUserConfig, fluxdConfig);
+
     await createServices();
     await systemdDaemonReload();
   }
 
   const nodejsInstallDir = await installNodeJs(nodejsBaseDir, nodejsVersion, platform, arch, 'gz');
   const fluxosLibDir = await installFluxOs(nodejsVersion, nodejsInstallDir);
-  return { nodejsInstallDir, fluxosLibDir }
+  return { binaryTargets: { nodejsInstallDir, fluxosLibDir }, fluxdRpcCredentials }
 
   // reload fluxos service and the other correct services
 }
@@ -532,7 +562,7 @@ async function copyChain(user, fluxdDataDir) {
 
   if (!chainExists) return false;
 
-  await runCommand('systemctl', { params: ['stop', 'zelcash.service'] });
+  await runCommand('systemctl', { logError: false, params: ['stop', 'zelcash.service'] });
 
   const renamePromises = foldersAbsolute.map(async (folder) => {
     const err = await fs.rename(folder, path.join('/usr/local/fluxd', path.basename(folder))).catch(() => true);
@@ -543,6 +573,10 @@ async function copyChain(user, fluxdDataDir) {
   const renameErrored = renameErrors.some((x) => x);
 
   if (renameErrored) return false;
+
+  // Would have to walk the direectories to do this in process, or just copy the files instead
+  // of moving them.
+  await runCommand('chown', { params: ['-R', 'fluxd:fluxd', '/usr/local/fluxd'] });
 
   return true;
 }
@@ -563,7 +597,7 @@ async function purgeExistingServices(user, uid, gid) {
 
   await runCommand('pm2', { params: ['stop', 'watchdog'], uid, gid });
   await runCommand('pm2', { params: ['stop', 'flux'], uid, gid });
-  await fs.rmdir(pm2ConfigDir, { recursive: true, force: true })
+  await fs.rm(pm2ConfigDir, { recursive: true, force: true });
 
   await runCommand('systemctl', { params: ['stop', pm2ServiceName] });
   await runCommand('systemctl', { params: ['stop', zelcashServiceName] });
@@ -574,11 +608,22 @@ async function purgeExistingServices(user, uid, gid) {
   await fs.rm(pm2SystemdFile, { force: true });
   await fs.rm(zelcashSystemdFile, { force: true });
 
-  await runCommand('systemctl', { params: ['daemon-reload'] });
+  await systemdDaemonReload();
 
-  await runCommand('pkill', { params: ['syncthing'] });
+  await runCommand('pkill', { logError: false, params: ['syncthing'] });
 
-  await fs.rmdir(userConfigDir, { recursive: true, force: true });
+  await fs.rm(userConfigDir, { recursive: true, force: true });
+}
+
+async function allowOperatorFluxCliAccess(fluxdRpcCredentials, uid, gid) {
+  const fluxdDir = '/home/operator/.flux';
+  const fluxdConf = '/home/operator/.flux/flux.conf';
+  const { rpcUser, rpcPassword } = fluxdRpcCredentials;
+
+  const content = `rpcuser=${rpcUser}\nrpcpassword=${rpcPassword}\n`
+  await fs.mkdir(fluxdDir, { recursive: true, }).catch(noop);
+  await fs.writeFile(fluxdConf, content);
+  await fs.chown(fluxdConf, uid, gid)
 }
 
 async function runMigration(existingUser, fluxdConfigPath, fluxosConfigPath) {
@@ -588,14 +633,17 @@ async function runMigration(existingUser, fluxdConfigPath, fluxosConfigPath) {
 
   // add in check for latest 20.x lts from https://nodejs.org/download/release/index.json.
 
-  const binaryTargets = await install('v20.13.1', { migrate: true, fluxdConfigPath, fluxosConfigPath });
+  const { binaryTargets, fluxdRpcCredentials } = await install('v20.13.1', { migrate: true, fluxdConfigPath, fluxosConfigPath });
 
+  console.log("BINARY TARGETS", binaryTargets)
   if (!binaryTargets) return false;
 
   await linkBinaries(binaryTargets);
   await copyChain(existingUser, path.dirname(fluxdConfigPath));
 
-  await purgeExistingServices(uid, gid);
+  await allowUserFluxdCli(fluxdRpcCredentials);
+  // await purgeExistingServices(existingUser, uid, gid);
+  // UPDATE rpc user / pass for USER in .flux/flux.conf
   await enableServices()
   // await startServices();
   return true;
