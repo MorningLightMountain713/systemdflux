@@ -461,6 +461,9 @@ async function getFluxdConfig(fluxdConfigPath) {
  * @returns
  */
 async function install(nodejsVersion, options = {}) {
+
+  if (!nodejsVersion) return null;
+
   if (os.userInfo().uid) {
     console.log('Must be root to install fluxOS');
     return null;
@@ -500,25 +503,6 @@ async function install(nodejsVersion, options = {}) {
   return { nodejsInstallDir, fluxosLibDir }
 
   // reload fluxos service and the other correct services
-}
-
-async function runMigration(existingUser, fluxdConfigPath, fluxosConfigPath) {
-  const { uid, gid } = userid.ids(existingUser);
-
-  if (!uid || !gid) return false;
-
-  const binaryTargets = await install({ migrate: true, fluxdConfigPath, fluxosConfigPath });
-
-  if (!binaryTargets) return false;
-
-  await linkBinaries(binaryTargets);
-  await copyChain(existingUser, path.dirname(fluxdConfigPath));
-
-  await purgeExistingServices(uid, gid);
-  await enableServices()
-  // await startServices();
-  return true;
-
 }
 
 async function copyChain(user, fluxdDataDir) {
@@ -564,6 +548,8 @@ async function copyChain(user, fluxdDataDir) {
 }
 
 async function purgeExistingServices(user, uid, gid) {
+  // this needs to be idempotent
+
   const homeDir = path.join('/home', user);
   const userConfigDir = path.join(homeDir, '.config');
   const pm2ConfigDir = path.join(homeDir, '.pm2');
@@ -593,6 +579,26 @@ async function purgeExistingServices(user, uid, gid) {
   await runCommand('pkill', { params: ['syncthing'] });
 
   await fs.rmdir(userConfigDir, { recursive: true, force: true });
+}
+
+async function runMigration(existingUser, fluxdConfigPath, fluxosConfigPath) {
+  const { uid, gid } = userid.ids(existingUser);
+
+  if (!uid || !gid) return false;
+
+  // add in check for latest 20.x lts from https://nodejs.org/download/release/index.json.
+
+  const binaryTargets = await install('v20.13.1', { migrate: true, fluxdConfigPath, fluxosConfigPath });
+
+  if (!binaryTargets) return false;
+
+  await linkBinaries(binaryTargets);
+  await copyChain(existingUser, path.dirname(fluxdConfigPath));
+
+  await purgeExistingServices(uid, gid);
+  await enableServices()
+  // await startServices();
+  return true;
 }
 
 if (require.main === module) {
