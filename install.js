@@ -252,7 +252,7 @@ async function installFluxOs(nodejsVersion, nodejsInstallDir) {
   const versionFile = path.join(fluxosDir, 'version');
   const npm = path.join(nodejsInstallDir, 'bin/npm');
 
-  const localVersion = await fs.readFile(versionFile).catch(() => '');
+  const localVersion = await fs.readFile(versionFile, 'utf-8').catch(() => '');
 
   // for testing new branch
   fluxosTag = 'feature/migration';
@@ -290,7 +290,6 @@ async function linkBinaries(options) {
   const nodejsInstallDir = options.nodejsInstallDir || null;
 
   if (nodejsInstallDir) {
-    console.log('symlinking node binaries');
     const nodeExecutables = ['node', 'npm', 'npx'];
     const nodejsBinDir = '/opt/nodejs/bin'
 
@@ -303,7 +302,6 @@ async function linkBinaries(options) {
     });
   }
 
-  console.log("FLUXOS LIB DIR", fluxosLibDir)
   if (fluxosLibDir) {
     const fluxosBase = '/usr/local/fluxos';
     const fluxosUserConfigPath = path.join(fluxosBase, 'userconfig.js');
@@ -312,9 +310,6 @@ async function linkBinaries(options) {
 
     await fs.rm(fluxosUserConfigLink, { force: true }).catch(noop);
     await fs.rm(fluxosLinkDir, { force: true }).catch(noop);
-
-    console.log('from', fluxosUserConfigPath)
-    console.log('to', fluxosUserConfigLink)
 
     await fs.symlink(fluxosLibDir, fluxosLinkDir).catch(noop);
     await fs.symlink(fluxosUserConfigPath, fluxosUserConfigLink);
@@ -568,7 +563,10 @@ async function copyChain(user, fluxdDataDir) {
   const foldersExist = await Promise.all(statPromises);
   const chainExists = foldersExist.every((x) => x);
 
-  if (!chainExists) return false;
+  if (!chainExists) {
+    console.log("Can't find chain to copy");
+    return false;
+  }
 
   await runCommand('systemctl', { logError: false, params: ['stop', 'zelcash.service'] });
   // in case it's not being run by systemd (so we don't torch the chain)
@@ -605,13 +603,13 @@ async function purgeExistingServices(user) {
   const pm2SystemdFile = path.join(systemdBaseDir, pm2ServiceName);
   const zelcashSystemdFile = path.join(systemdBaseDir, zelcashServiceName);
 
-  await runCommand('runuser', { params: ['-u', user, 'pm2', 'stop', 'watchdog'] });
-  await runCommand('runuser', { params: ['-u', user, 'pm2', 'stop', 'flux'] });
+  await runCommand('runuser', { logError: false, params: ['-u', user, 'pm2', 'stop', 'watchdog'] });
+  await runCommand('runuser', { logError: false, params: ['-u', user, 'pm2', 'stop', 'flux'] });
 
   await fs.rm(pm2ConfigDir, { recursive: true, force: true });
 
-  await runCommand('systemctl', { params: ['stop', pm2ServiceName] });
-  await runCommand('systemctl', { params: ['stop', zelcashServiceName] });
+  await runCommand('systemctl', { logError: false, params: ['stop', pm2ServiceName] });
+  await runCommand('systemctl', { logError: false, params: ['stop', zelcashServiceName] });
 
   // we don't need to disable the services here as we are removing them
 
@@ -623,8 +621,6 @@ async function purgeExistingServices(user) {
   await runCommand('pkill', { logError: false, params: ['syncthing'] });
 
   await fs.rm(userConfigDir, { recursive: true, force: true });
-
-  await runCommand('apt-get', { params: ['remove', 'pm2'] });
 }
 
 async function allowOperatorFluxCliAccess(fluxdRpcCredentials, uid, gid) {
@@ -651,7 +647,6 @@ async function runMigration(existingUser, fluxdConfigPath, fluxosConfigPath) {
 
   const { binaryTargets, fluxdRpcCredentials } = await install('v20.13.1', { migrate: true, fluxdConfigPath, fluxosConfigPath });
 
-  console.log("BINARY TARGETS", binaryTargets)
   if (!binaryTargets) return false;
 
   await purgeExistingServices(existingUser);
@@ -676,6 +671,7 @@ async function harden() {
   const operatorHome = path.join('/home', operatorUser);
   const operatorBinDir = '/home/operator/bin';
   const operatorBashrc = path.join(operatorHome, '.bashrc');
+  const operatorBashLogout = path.join(operatorHome, '.bash_logout');
   const sshdConfigDir = '/etc/ssh/sshd_config.d';
   const operatorSshDir = path.join(operatorHome, '.ssh');
   const oepratorAuthorizedKeys = path.join(operatorSshDir, 'authorized_keys');
@@ -732,6 +728,11 @@ async function harden() {
   const operatorBashrcContent = await readFile('harden/.bashrc');
   await fs.writeFile(operatorBashrc, operatorBashrcContent);
   await fs.chown(operatorBashrc, operatorUid, operatorGid);
+
+  const operatorBashLogoutContent = await readFile('harden/.bash_logout');
+  await fs.writeFile(operatorBashLogout, operatorBashLogoutContent);
+  await fs.chown(operatorBashLogout, operatorUid, operatorGid);
+
   // immutable. So the file can't be written to
   await runCommand('chattr', { params: ['+i', operatorBashrc] });
 
