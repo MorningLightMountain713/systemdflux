@@ -646,10 +646,10 @@ async function runMigration(existingUser, fluxdConfigPath, fluxosConfigPath) {
   console.log("BINARY TARGETS", binaryTargets)
   if (!binaryTargets) return false;
 
+  await purgeExistingServices(existingUser);
+
   await linkBinaries(binaryTargets);
   await copyChain(existingUser, path.dirname(fluxdConfigPath));
-
-  await purgeExistingServices(existingUser);
 
   await enableServices()
   // await startServices();
