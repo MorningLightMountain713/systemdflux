@@ -31,7 +31,7 @@ The signal to send can be tweaked via ReloadSignal=, see below.
 const noop = () => { };
 const sleep = (ms) => new Promise((r) => { setTimeout(r, ms) });
 
-function sendReloadingIfSupported(target, context) {
+function sendReloadingIfSupported(target) {
   // const {name, addInitializer} = context;
 
   async function inner(...args) {
@@ -207,7 +207,7 @@ class FluxOSWatcher {
         console.log(`child process close all stdio with code ${code}`);
       });
 
-      fluxOs.on('disconnect', (event) => {
+      fluxOs.on('disconnect', () => {
         console.log("FluxOS Disconnected");
       });
 
@@ -273,7 +273,8 @@ class FluxOSWatcher {
 }
 
 async function init() {
-  const watcher = new FluxOSWatcher();
+  new FluxOSWatcher();
+
 }
 
 init();

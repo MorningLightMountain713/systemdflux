@@ -8,6 +8,7 @@ const simpleGit = require('simple-git');
 const nunjucks = require("nunjucks");
 const xml = require("fast-xml-parser");
 const ini = require('ini');
+
 const ssh = require('ed25519-keygen/ssh');
 const { randomBytes } = require('ed25519-keygen/utils');
 
@@ -123,7 +124,9 @@ function generateTemplate(name, context) {
   let content = "";
   try {
     content = env.render(templateName, context);
-  } catch { }
+  } catch (err) {
+    console.log(err);
+  }
 
   return content;
 }
@@ -151,9 +154,9 @@ async function enableServices() {
   })
 };
 
-async function startServices() {
-  await runCommand('systemctl', { params: ['start', 'flux.target'] });
-}
+// async function startServices() {
+//   await runCommand('systemctl', { params: ['start', 'flux.target'] });
+// }
 
 async function createServices() {
   await writeService("syncthing");
@@ -424,7 +427,7 @@ async function getFluxosConfig(fluxosConfigPath) {
     return null;
   }
 
-  const { apiport: fluxApiPort } = fluxosConfig?.default?.initial;
+  const { apiport: fluxApiPort } = fluxosConfig?.default?.initial || {};
 
   if (!fluxApiPort) {
     console.log('Unable to retrieve apiport, migration not possible');
@@ -646,6 +649,7 @@ async function runMigration(existingUser, fluxdConfigPath, fluxosConfigPath) {
 
   if (!uid || !gid) return false;
 
+  // url -s https://nodejs.org/download/release/index.json | jq '.[] | select(.lts == "Iron")'
   // add in check for latest 20.x lts from https://nodejs.org/download/release/index.json.
 
   const { binaryTargets, fluxdRpcCredentials } = await install('v20.13.1', { migrate: true, fluxdConfigPath, fluxosConfigPath });
@@ -668,7 +672,6 @@ async function runMigration(existingUser, fluxdConfigPath, fluxosConfigPath) {
 
 async function harden() {
   // create operator, recovery
-  const users = ['operator', 'recovery'];
   const recoveryUser = 'recovery';
   const operatorUser = 'operator';
   const operatorHome = path.join('/home', operatorUser);
