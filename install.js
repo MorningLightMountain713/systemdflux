@@ -649,15 +649,12 @@ async function runMigration(existingUser, fluxdConfigPath, fluxosConfigPath) {
   await linkBinaries(binaryTargets);
   await copyChain(existingUser, path.dirname(fluxdConfigPath));
 
-  // todo: build this
-  // await allowOperatorFluxCliAccess(fluxdRpcCredentials, operatorUid, operatorGid);
-
-  // await purgeExistingServices(existingUser);
+  await purgeExistingServices(existingUser);
 
   await enableServices()
   // await startServices();
 
-  // this still needs a bunch of work (to actually harden)
+  // this still needs a bunch of work, configure recovery user etc.
   const operatorIds = await harden();
   await allowOperatorFluxCliAccess(fluxdRpcCredentials, operatorIds.uid, operatorIds.gid);
   return true;
