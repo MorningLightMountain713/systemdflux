@@ -394,16 +394,18 @@ async function generateSyncthingconfig(syncthingPort) {
   const parser = new xml.XMLParser(options);
   const parsedConfig = parser.parse(rawConfig);
 
-  // this isn't actually the gui, it the api port
+  // this isn't actually the gui, it's the api port
   // parsedConfig.configuration.gui['@_enabled'] = false;
-
+  parsedConfig.configuration.gui.address = '127.0.0.1:8384';
   parsedConfig.configuration.options.listenAddress = [`tcp://:${syncthingPort}`, `quic://:${syncthingPort}`];
 
   const builder = new xml.XMLBuilder(options);
   const xmlConfig = builder.build(parsedConfig);
   await fs.writeFile(configPath, xmlConfig).catch(noop);
 
-  const { uid, gid } = await linuxUser.getUserInfo('syncthing').catch(noop);
+  const { uid, gid } = await linuxUser.getUserInfo('syncthing').catch((err) => {
+    console.log(err);
+  })
   // this needs to be fixed (just runCommand as user)
   await fs.chown(syncthingDir, uid, gid).catch(noop);
   await fs.chown(path.join(syncthingDir, 'cert.pem'), uid, gid).catch(noop);
@@ -571,6 +573,7 @@ async function copyChain(user, fluxdDataDir) {
   await runCommand('systemctl', { logError: false, params: ['stop', 'zelcash.service'] });
   // in case it's not being run by systemd (so we don't torch the chain)
   await runCommand('pkill', { logError: false, params: ['fluxd'] });
+  await runCommand('pkill', { logError: false, params: ['fluxbenchd'] });
 
   const renamePromises = foldersAbsolute.map(async (folder) => {
     const err = await fs.rename(folder, path.join('/usr/local/fluxd', path.basename(folder))).catch(() => true);
@@ -625,7 +628,7 @@ async function purgeExistingServices(user) {
 
 async function allowOperatorFluxCliAccess(fluxdRpcCredentials, uid, gid) {
   const fluxdDir = '/home/operator/.flux';
-  const fluxdConf = '/home/operator/.flux/flux.conf';
+  const fluxdConf = path.join(fluxdDir, 'flux.conf');
   const { rpcUser, rpcPassword } = fluxdRpcCredentials;
 
   const content = `rpcuser=${rpcUser}\nrpcpassword=${rpcPassword}\n`
@@ -677,6 +680,8 @@ async function harden() {
   const oepratorAuthorizedKeys = path.join(operatorSshDir, 'authorized_keys');
   const operatorHelpFile = '/usr/local/sbin/help';
 
+  // this is a default group that is installed, we remove it so it doesn't mess with our operator user
+  await linuxUser.removeGroup(operatorUser).catch(noop);
   // we have to remove this first, if it exists and we try to remove the user, it will fail
   // as root can't delete the homdir with this file present. Fail silently
   await runCommand('chattr', { logError: false, params: ['-i', operatorBashrc] });
@@ -686,7 +691,7 @@ async function harden() {
 
   const { uid: operatorUid, gid: operatorGid } = await linuxUser
     .addUser({ username: operatorUser, shell: "/bin/rbash", create_home: true })
-    .catch((e) => console.log(e));
+    .catch(() => ({}));
 
   if (!operatorUid || !operatorGid) {
     console.log('Unable to get operator uid and gui. Exiting.');
