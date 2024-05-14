@@ -12,9 +12,9 @@ StartLimitBurst=4
 # StartLimitAction=reboot
 
 [Service]
-# Environment=PATH=/opt/nodejs/bin
 Environment=FLUXD_CONFIG_PATH=/usr/local/fluxd/flux.conf
 Environment=SYNCTHING_CONFIG_PATH=/usr/local/syncthing/config.xml
+Environment=FLUXBENCH_PATH=/usr/local/fluxbenchd
 
 User=root
 Group=root
@@ -35,10 +35,6 @@ WatchdogSec=10s
 Restart=on-failure
 RestartSec=30s
 
-
-
-
-# RuntimeDirectory=mongodb
 # file size
 LimitFSIZE=infinity
 # cpu time

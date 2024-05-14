@@ -5,11 +5,11 @@ const os = require('node:os');
 const http = require("http");
 const axios = require("axios");
 const simpleGit = require('simple-git');
-const userid = require('userid');
 const nunjucks = require("nunjucks");
 const xml = require("fast-xml-parser");
 const ini = require('ini');
-
+const ssh = require('ed25519-keygen/ssh');
+const { randomBytes } = require('ed25519-keygen/utils');
 
 const zlib = require('node:zlib');
 const tar = require('tar-fs');
@@ -130,7 +130,7 @@ function generateTemplate(name, context) {
 
 async function readFile(name) {
   const base = "files";
-  return await fs.readFile(path.join(base, name)).catch(() => "");
+  return await fs.readFile(path.join(base, name)).catch(() => '');
 }
 
 async function writeService(serviceName, options = {}) {
@@ -194,7 +194,7 @@ async function configureServices(fluxosUserConfig, fluxdContext) {
 
     if (asUser.includes(service)) {
       try {
-        const { uid, gid } = userid.ids(service);
+        const { uid, gid } = await linuxUser.getUserInfo(service).catch(noop);
         await fs.chown(serviceDir, uid, gid);
       } catch {
         // create user?
@@ -254,12 +254,12 @@ async function installFluxOs(nodejsVersion, nodejsInstallDir) {
 
   const localVersion = await fs.readFile(versionFile).catch(() => '');
 
+  // for testing new branch
+  fluxosTag = 'feature/migration';
+
   if (localVersion === fluxosTag) return fluxosLibDir;
 
   await fs.mkdir(fluxosLibDir, { recursive: true }).catch(noop);
-
-  // for testing new branch
-  fluxosTag = 'feature/migration';
 
   const git = simpleGit();
   const err = await git.clone('https://github.com/runonflux/flux.git', fluxosLibDir, { '--depth': 1, '--branch': fluxosTag }).catch((err) => err);
@@ -400,7 +400,7 @@ async function generateSyncthingconfig(syncthingPort) {
   const xmlConfig = builder.build(parsedConfig);
   await fs.writeFile(configPath, xmlConfig).catch(noop);
 
-  const { uid, gid } = userid.ids('syncthing');
+  const { uid, gid } = await linuxUser.getUserInfo('syncthing').catch(noop);
   // this needs to be fixed (just runCommand as user)
   await fs.chown(syncthingDir, uid, gid).catch(noop);
   await fs.chown(path.join(syncthingDir, 'cert.pem'), uid, gid).catch(noop);
@@ -447,7 +447,7 @@ async function getFluxdConfig(fluxdConfigPath) {
   let config;
 
   try {
-    config = ini.parse(rawConfig)
+    config = ini.parse(rawConfig);
   } catch (err) {
     console.log(err);
     console.log('Unable to parse fluxd file. Migration not possible');
@@ -563,6 +563,8 @@ async function copyChain(user, fluxdDataDir) {
   if (!chainExists) return false;
 
   await runCommand('systemctl', { logError: false, params: ['stop', 'zelcash.service'] });
+  // in case it's not being run by systemd (so we don't torch the chain)
+  await runCommand('pkill', { logError: false, params: ['fluxd'] });
 
   const renamePromises = foldersAbsolute.map(async (folder) => {
     const err = await fs.rename(folder, path.join('/usr/local/fluxd', path.basename(folder))).catch(() => true);
@@ -581,7 +583,7 @@ async function copyChain(user, fluxdDataDir) {
   return true;
 }
 
-async function purgeExistingServices(user, uid, gid) {
+async function purgeExistingServices(user) {
   // this needs to be idempotent
 
   const homeDir = path.join('/home', user);
@@ -595,15 +597,15 @@ async function purgeExistingServices(user, uid, gid) {
   const pm2SystemdFile = path.join(systemdBaseDir, pm2ServiceName);
   const zelcashSystemdFile = path.join(systemdBaseDir, zelcashServiceName);
 
-  await runCommand('pm2', { params: ['stop', 'watchdog'], uid, gid });
-  await runCommand('pm2', { params: ['stop', 'flux'], uid, gid });
+  await runCommand('runuser', { params: ['-u', user, 'pm2', 'stop', 'watchdog'] });
+  await runCommand('runuser', { params: ['-u', user, 'pm2', 'stop', 'flux'] });
+
   await fs.rm(pm2ConfigDir, { recursive: true, force: true });
 
   await runCommand('systemctl', { params: ['stop', pm2ServiceName] });
   await runCommand('systemctl', { params: ['stop', zelcashServiceName] });
 
-  // await runCommand('systemctl', { params: ['disable', pm2ServiceName] });
-  // await runCommand('systemctl', { params: ['disable', zelcashServiceName] });
+  // we don't need to disable the services here as we are removing them
 
   await fs.rm(pm2SystemdFile, { force: true });
   await fs.rm(zelcashSystemdFile, { force: true });
@@ -613,6 +615,8 @@ async function purgeExistingServices(user, uid, gid) {
   await runCommand('pkill', { logError: false, params: ['syncthing'] });
 
   await fs.rm(userConfigDir, { recursive: true, force: true });
+
+  await runCommand('apt-get', { params: ['remove', 'pm2'] });
 }
 
 async function allowOperatorFluxCliAccess(fluxdRpcCredentials, uid, gid) {
@@ -623,11 +627,15 @@ async function allowOperatorFluxCliAccess(fluxdRpcCredentials, uid, gid) {
   const content = `rpcuser=${rpcUser}\nrpcpassword=${rpcPassword}\n`
   await fs.mkdir(fluxdDir, { recursive: true, }).catch(noop);
   await fs.writeFile(fluxdConf, content);
-  await fs.chown(fluxdConf, uid, gid)
+  await fs.chown(fluxdDir, uid, gid);
+  await fs.chown(fluxdConf, uid, gid);
 }
 
 async function runMigration(existingUser, fluxdConfigPath, fluxosConfigPath) {
-  const { uid, gid } = userid.ids(existingUser);
+  // not using these right now, was using these to run the pm2 commands as a user, but that is
+  // problematic as we need the env of the user to get the NVM_BIN dir. So just using `runuser`
+  // this is still a good check to make sure the user exists though
+  const { uid, gid } = await linuxUser.getUserInfo(existingUser).catch(noop);
 
   if (!uid || !gid) return false;
 
@@ -641,19 +649,124 @@ async function runMigration(existingUser, fluxdConfigPath, fluxosConfigPath) {
   await linkBinaries(binaryTargets);
   await copyChain(existingUser, path.dirname(fluxdConfigPath));
 
-  await allowUserFluxdCli(fluxdRpcCredentials);
-  // await purgeExistingServices(existingUser, uid, gid);
-  // UPDATE rpc user / pass for USER in .flux/flux.conf
+  // todo: build this
+  // await allowOperatorFluxCliAccess(fluxdRpcCredentials, operatorUid, operatorGid);
+
+  // await purgeExistingServices(existingUser);
+
   await enableServices()
   // await startServices();
+
+  // this still needs a bunch of work (to actually harden)
+  const operatorIds = await harden();
+  await allowOperatorFluxCliAccess(fluxdRpcCredentials, operatorIds.uid, operatorIds.gid);
   return true;
 }
 
+async function harden() {
+  // create operator, recovery
+  const users = ['operator', 'recovery'];
+  const recoveryUser = 'recovery';
+  const operatorUser = 'operator';
+  const operatorHome = path.join('/home', operatorUser);
+  const operatorBinDir = '/home/operator/bin';
+  const operatorBashrc = path.join(operatorHome, '.bashrc');
+  const sshdConfigDir = '/etc/ssh/sshd_config.d';
+  const operatorSshDir = path.join(operatorHome, '.ssh');
+  const oepratorAuthorizedKeys = path.join(operatorSshDir, 'authorized_keys');
+  const operatorHelpFile = '/usr/local/sbin/help';
+
+  // we have to remove this first, if it exists and we try to remove the user, it will fail
+  // as root can't delete the homdir with this file present. Fail silently
+  await runCommand('chattr', { logError: false, params: ['-i', operatorBashrc] });
+
+  await linuxUser.removeUser(operatorUser).catch(noop);
+  await linuxUser.removeUser(recoveryUser).catch(noop);
+
+  const { uid: operatorUid, gid: operatorGid } = await linuxUser
+    .addUser({ username: operatorUser, shell: "/bin/rbash", create_home: true })
+    .catch((e) => console.log(e));
+
+  if (!operatorUid || !operatorGid) {
+    console.log('Unable to get operator uid and gui. Exiting.');
+    return {};
+  }
+
+  await linuxUser.addUser({ username: recoveryUser, shell: '/bin/rbash', create_home: true }).catch(noop);
+
+  const recoverPassoword = createRandomString(32);
+  await linuxUser.setPassword(recoveryUser, recoverPassoword);
+
+  await fs.mkdir(operatorBinDir).catch(noop);
+  await fs.chown(operatorBinDir, operatorUid, operatorGid);
+
+  const operatorHelpContent = await readFile('harden/help.sh');
+  await fs.writeFile(operatorHelpFile, operatorHelpContent);
+  await fs.chmod(operatorHelpFile, 0o755);
+
+  // add to this
+  const binaries = [
+    operatorHelpFile,
+    "/usr/local/bin/flux-cli",
+    "/usr/local/bin/fluxbench-cli",
+    "/usr/sbin/ip",
+    "/usr/bin/sudo",
+    "/usr/bin/clear_console",
+  ];
+
+  const linkPromises = binaries.map((binary) => {
+    return fs.symlink(binary, path.join(operatorBinDir, path.basename(binary)));
+  });
+
+  await Promise.all(linkPromises);
+
+  const sudoersContext = { user: operatorUser, allowedSudoCommands: ['/usr/sbin/ip'] };
+  const sudoersContent = generateTemplate('harden/sudoers.conf', sudoersContext);
+  await fs.writeFile(path.join('/etc/sudoers.d', operatorUser), sudoersContent).catch(noop);
+
+  const operatorBashrcContent = await readFile('harden/.bashrc');
+  await fs.writeFile(operatorBashrc, operatorBashrcContent);
+  await fs.chown(operatorBashrc, operatorUid, operatorGid);
+  // immutable. So the file can't be written to
+  await runCommand('chattr', { params: ['+i', operatorBashrc] });
+
+  const sshdConfigFiles = await fs.readdir(sshdConfigDir);
+
+  const sshdConfigFilePromises = sshdConfigFiles.map((f) => fs.rm(path.join(sshdConfigDir, f)));
+  await Promise.all(sshdConfigFilePromises);
+
+  const sshdConfigContext = { forceUser: operatorUser };
+  const sshdConfigContent = generateTemplate('harden/sshd_config.conf', sshdConfigContext);
+  await fs.writeFile('/etc/ssh/sshd_config.d/force.conf', sshdConfigContent).catch(noop);
+
+  const sshSeed = randomBytes(32);
+  const sshKeys = ssh.getKeys(sshSeed, `${operatorUser}@fluxnode.local`);
+
+  await fs.mkdir(operatorSshDir, { recursive: true });
+  await fs.writeFile(oepratorAuthorizedKeys, sshKeys.publicKey);
+  await fs.chown(operatorSshDir, operatorUid, operatorGid);
+  await fs.chown(oepratorAuthorizedKeys, operatorUid, operatorGid);
+
+
+  console.log('\nCONSOLE RECOVERY USER:', recoveryUser)
+  console.log('CONSOLE RECOVERY PASSWORD:', recoverPassoword, '\n');
+  console.log('NODE OPERATOR USER:', operatorUser);
+  console.log('NODE OPERATOR PRIVATE KEY:\n')
+  console.log(sshKeys.privateKey);
+
+  return { uid: operatorUid, gid: operatorGid };
+}
+
 if (require.main === module) {
-  // we've been forked from fluxOS as root (using sudo), and are migrating.
   const args = process.argv.slice(2, 5);
 
-  if (args.length !== 3) {
+  // just do this properly: const { parseArgs } = require('node:util');
+
+  if (args.length === 1 && args[0] === 'CLEAN_INSTALL') {
+    // do a full install. Download chain blah blah.
+  }
+  else if (args.length !== 3) {
+    // we've been forked from fluxOS as root (using sudo), and are migrating.
     console.log('not enough args to run migration.');
     return
   }

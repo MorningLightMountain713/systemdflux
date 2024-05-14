@@ -20,14 +20,12 @@
   },
   "dependencies": {
     "axios": "^1.6.8",
+    "ed25519-keygen": "^0.6.1",
     "fast-xml-parser": "^4.3.6",
     "ini": "^4.1.2",
     "linux-sys-user": "^1.2.0",
     "nunjucks": "^3.2.4",
     "simple-git": "^3.24.0",
-    "tar-fs": "^3.0.6",
-    "unix-dgram": "^2.0.6",
-    "userid": "^1.2.5",
-    "why-is-node-running": "^2.2.2"
+    "tar-fs": "^3.0.6"
   }
 }
