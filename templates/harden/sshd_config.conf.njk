@@ -1,0 +1,6 @@
+# this should probably be all users
+Match User {{ forceUser }}
+  ForceCommand        if [ "$SSH_ORIGINAL_COMMAND" ]; then echo "this server rejects non-interactive ssh usage" >&2; exit 1; else rbash -i; fi
+  AllowTcpForwarding  no
+  X11Forwarding       no
+  MaxSessions         1
