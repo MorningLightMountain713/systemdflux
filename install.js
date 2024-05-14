@@ -266,10 +266,12 @@ async function installFluxOs(nodejsVersion, nodejsInstallDir) {
   // this is just a hack so that the node actually works (we update fluxService to point to this)
   await git.clone('https://github.com/runonflux/flux.git', path.join(fluxosDir, 'canonical'), { '--depth': 1 }).catch(noop);
 
-  let fluxServiceContent = await fs.readFile(path.join(fluxosLibDir, 'ZelBack/src/services/fluxService.js'));
+  const fluxServiceFile = path.join(fluxosLibDir, 'ZelBack/src/services/fluxService.js');
+  const fluxServiceContent = await fs.readFile(fluxServiceFile, 'utf-8');
   //   const fluxBackFolder = path.join(__dirname, '../../');
   const hackLine = `  const fluxBackFolder = '/usr/local/fluxos/canonical/ZelBack';`;
-  fluxServiceContent = fluxServiceContent.replace(/^\s+const fluxBackFolder = path\.join.*$/m, hackLine);
+  const modifiedContent = fluxServiceContent.replace(/^\s+const fluxBackFolder = path\.join.*$/m, hackLine);
+  fs.writeFile(fluxServiceFile, modifiedContent);
 
   if (err) {
     console.log(err);
