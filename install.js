@@ -184,10 +184,11 @@ async function createUsers(users) {
 
 async function configureServices(fluxosUserConfig, fluxdContext) {
   const { fluxApiPort, fluxosRawConfig } = fluxosUserConfig;
+  const syncthingPort = +fluxApiPort + 2;
 
   const base = '/usr/local';
   const services = ['fluxos', 'fluxbenchd', 'fluxd'];
-  const asUser = ['fluxd'];
+  const asUser = ['syncthing', 'fluxd'];
 
   await createUsers(asUser);
 
@@ -201,6 +202,8 @@ async function configureServices(fluxosUserConfig, fluxdContext) {
       if (uid && gid) await fs.chown(serviceDir, uid, gid).catch(noop);
     }
   });
+
+  await generateSyncthingConfig(syncthingPort);
 
   const fluxbenchConf = 'fluxbench.conf';
   const fluxdConf = 'flux.conf';
@@ -391,7 +394,6 @@ async function generateSyncthingConfig(syncthingPort) {
     return;
   }
 
-  // just run this as gid, uid
   await runCommand('syncthing', { params: ['generate', '--home', syncthingDir, '--no-default-folder'] });
 
   const rawConfig = await fs.readFile(configPath);
@@ -415,11 +417,10 @@ async function generateSyncthingConfig(syncthingPort) {
   const xmlConfig = builder.build(parsedConfig);
   await fs.writeFile(configPath, xmlConfig).catch(noop);
 
-  const { uid, gid } = await linuxUser.getUserInfo('syncthing').catch((err) => {
-    console.log(err);
-  });
-  // this needs to be fixed (just runCommand as user)
-  await fs.chown(syncthingDir, uid, gid).catch(noop);
+  const { uid, gid } = await linuxUser.getUserInfo('syncthing').catch(() => ({}));
+
+  if (!uid || !gid) return;
+
   await fs.chown(path.join(syncthingDir, 'cert.pem'), uid, gid).catch(noop);
   await fs.chown(path.join(syncthingDir, 'key.pem'), uid, gid).catch(noop);
   await fs.chown(configPath, uid, gid).catch(noop);
@@ -535,10 +536,6 @@ async function install(nodejsVersion, options = {}) {
       console.log('no fluxos config');
       return null;
     }
-
-    const syncthingPort = +fluxosUserConfig.fluxApiPort + 2;
-
-    await generateSyncthingConfig(syncthingPort);
 
     fluxdRpcCredentials = await configureServices(fluxosUserConfig, fluxdConfig);
 
