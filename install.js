@@ -187,7 +187,7 @@ async function configureServices(fluxosUserConfig, fluxdContext) {
   const syncthingPort = +fluxApiPort + 2;
 
   const base = '/usr/local';
-  const services = ['fluxos', 'fluxbenchd', 'fluxd'];
+  const services = ['syncthing', 'fluxos', 'fluxbenchd', 'fluxd'];
   const asUser = ['syncthing', 'fluxd'];
 
   await createUsers(asUser);
