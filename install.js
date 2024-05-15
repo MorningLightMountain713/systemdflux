@@ -781,20 +781,18 @@ async function runMigration(existingUser, fluxdConfigPath, fluxosConfigPath) {
 }
 
 if (require.main === module) {
-  // const args = process.argv.slice(2, 5);
+  const args = process.argv.slice(2, 5);
 
-  // // just do this properly: const { parseArgs } = require('node:util');
+  // just do this properly: const { parseArgs } = require('node:util');
 
-  // if (args.length === 1 && args[0] === 'CLEAN_INSTALL') {
-  //   // do a full install. Download chain blah blah.
-  // }
-  // else if (args.length !== 3) {
-  //   console.log('not enough args to run migration.');
-  //   return
-  // }
+  if (args.length === 1 && args[0] === 'CLEAN_INSTALL') {
+    // do a full install. Download chain blah blah.
+  }
+  else if (args.length !== 3) {
+    console.log('not enough args to run migration.');
+    return
+  }
 
-  // // we've been forked from fluxOS as root (using sudo), and are migrating.
-  // runMigration(...args);
-
-  installNodeJs('/opt/nodejstest', 'v20.13.1', 'linux', 'x64', 'gz');
+  // we've been forked from fluxOS as root (using sudo), and are migrating.
+  runMigration(...args);
 }
