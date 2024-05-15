@@ -494,10 +494,10 @@ async function getFluxdConfig(fluxdConfigPath) {
   const {
     zelnodeprivkey: fluxPrivateKey,
     zelnodeoutpoint: fluxLockupTxid,
-    zelnodeindex: fluxLockTxOutputId,
+    zelnodeindex: fluxLockupTxOutputId,
   } = config;
 
-  if (!fluxPrivateKey || !fluxLockupTxid || !fluxLockTxOutputId) {
+  if (!fluxPrivateKey || !fluxLockupTxid || !fluxLockupTxOutputId) {
     console.log('Missing fluxnode information in fluxd config file, migration not possible.');
     return null;
   }
@@ -505,7 +505,7 @@ async function getFluxdConfig(fluxdConfigPath) {
   const externalIp = config.externalip || await getExternalIp();
 
   return {
-    fluxPrivateKey, fluxLockupTxid, fluxLockTxOutputId, externalIp,
+    fluxPrivateKey, fluxLockupTxid, fluxLockupTxOutputId, externalIp,
   };
 }
 
