@@ -2,7 +2,6 @@
 Description=Syncthing - Open Source Continuous File Synchronization
 Documentation=man:syncthing(1)
 
-PartOf=flux.target
 After=network-online.target
 Wants=network-online.target
 

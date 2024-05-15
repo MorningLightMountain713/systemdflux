@@ -2,6 +2,7 @@
 Description=Flux group target
 After=network-online.target
 Wants=containerd.service
+Wants=docker.service
 Wants=mongod.service
 Wants=syncthing.service
 Wants=fluxbenchd.service
