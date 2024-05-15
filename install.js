@@ -178,7 +178,7 @@ async function createUsers(users) {
   if (!process.platform === 'linux') return;
 
   users.forEach(async (user) => {
-    await linuxUser.addUser({ username: user, shell: null, system: true }).catch(noop);
+    await linuxUser.addUser({ username: user, shell: null, system: true }).catch((err) => console.log(err));
   });
 }
 
@@ -194,10 +194,12 @@ async function configureServices(fluxosUserConfig, fluxdContext) {
 
   services.forEach(async (service) => {
     const serviceDir = path.join(base, service);
+    console.log(serviceDir);
 
     await fs.mkdir(serviceDir, { recursive: true }).catch(noop);
 
     if (asUser.includes(service)) {
+      console.log('getting uid for service', service)
       const { uid, gid } = await linuxUser.getUserInfo(service).catch(() => ({}));
       if (uid && gid) await fs.chown(serviceDir, uid, gid).catch(noop);
     }
