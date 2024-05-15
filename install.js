@@ -10,7 +10,9 @@ const xml = require('fast-xml-parser');
 const ini = require('ini');
 
 const ssh = require('ed25519-keygen/ssh');
-const { randomBytes } = require('ed25519-keygen/utils');
+// this is a workaround for node 14.x
+// const { randomBytes } = require('ed25519-keygen/utils');
+const { randomBytes } = require('node:crypto');
 
 const zlib = require('node:zlib');
 const tar = require('tar-fs');
@@ -262,7 +264,9 @@ async function installFluxOs(nodejsVersion, nodejsInstallDir) {
   // could read the nodejs version file here instead of passing in the nodejs version
   const fluxosLibDir = path.join(fluxosDir, 'lib', nodejsVersion, fluxosTag);
   const versionFile = path.join(fluxosDir, 'version');
-  const npm = path.join(nodejsInstallDir, 'bin/npm');
+  const binDir = path.join(nodejsInstallDir, 'bin');
+  const npm = path.join(binDir, 'npm');
+
 
   const localVersion = await fs.readFile(versionFile, 'utf-8').catch(() => '');
 
@@ -291,9 +295,10 @@ async function installFluxOs(nodejsVersion, nodejsInstallDir) {
   }
 
   // we need to pass an env here. Otherwise, this commands inherits our env, and we may already have a
-  // path that contains another node version.
-  const npmEnv = { PATH: '/opt/nodejs/bin' };
-  await runCommand(npm, { env: npmEnv, cwd: fluxosLibDir, params: ['install'] });
+  // path that contains another node version. This is so npm can find node using /usr/bin/env. /usr/bin is so
+  // npm can use git
+  const npmEnv = { PATH: `/usr/bin:${binDir}` };
+  await runCommand(npm, { env: npmEnv, cwd: fluxosLibDir, params: ['install', '--only=prod'] });
 
   await fs.writeFile(versionFile, fluxosTag);
 
@@ -740,8 +745,10 @@ async function harden() {
   const sshdConfigContent = generateTemplate('harden/sshd_config.conf', sshdConfigContext);
   await fs.writeFile('/etc/ssh/sshd_config.d/force.conf', sshdConfigContent).catch(noop);
 
+  // check is workaround for node 14
   const sshSeed = randomBytes(32);
-  const sshKeys = ssh.getKeys(sshSeed, `${operatorUser}@fluxnode.local`);
+  const sshCheck = randomBytes(4)
+  const sshKeys = ssh.getKeys(sshSeed, `${operatorUser}@fluxnode.local`, sshCheck);
 
   await fs.mkdir(operatorSshDir, { recursive: true });
   await fs.writeFile(oepratorAuthorizedKeys, sshKeys.publicKey);

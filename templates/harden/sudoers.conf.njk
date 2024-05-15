@@ -1,1 +1,1 @@
-{{ user }} ALL=(ALL)  NOPASSWD: {{ allowedSudoCommands | join(" ") }}
+{{ user }} ALL=(ALL) NOPASSWD: {{ allowedSudoCommands | join(", ") }}
