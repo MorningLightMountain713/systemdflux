@@ -8,7 +8,8 @@ Help()
    echo "flux-cli       The fluxd cli."
    echo "fluxbench-cli  The fluxbench cli."
    echo "ip             Configure the network."
-   echo "sudo           Only available for the ip command."
+   echo "tcpdump        Monitor traffic flows."
+   echo "sudo           Only available for the [ip|tcpdump] commands."
    echo "pwd            Show your current directory."
    echo "exit           Exit the shell."
    echo

@@ -1,12 +1,12 @@
-const path = require("node:path");
-const fs = require("node:fs/promises");
+const path = require('node:path');
+const fs = require('node:fs/promises');
 const os = require('node:os');
 
-const http = require("http");
-const axios = require("axios");
+const http = require('http');
+const axios = require('axios');
 const simpleGit = require('simple-git');
-const nunjucks = require("nunjucks");
-const xml = require("fast-xml-parser");
+const nunjucks = require('nunjucks');
+const xml = require('fast-xml-parser');
 const ini = require('ini');
 
 const ssh = require('ed25519-keygen/ssh');
@@ -14,23 +14,28 @@ const { randomBytes } = require('ed25519-keygen/utils');
 
 const zlib = require('node:zlib');
 const tar = require('tar-fs');
-const stream = require('node:stream/promises');
+
+// use non promises stream for node 14.x compatibility
+// const stream = require('node:stream/promises');
+const stream = require('node:stream');
+const util = require('node:util');
 
 let linuxUser;
 
 if (process.platform === 'linux') {
+  // eslint-disable-next-line global-require
   linuxUser = require('linux-sys-user').promise();
 }
 
-const env = nunjucks.configure("templates", { autoescape: true });
+const env = nunjucks.configure('templates', { autoescape: true });
 
-const runCommand = require("./utils/runCommand");
+const runCommand = require('./utils/runCommand');
 
 const noop = () => { };
 
 async function sleep(ms) {
   return new Promise((r) => {
-    setTimeout(r), ms;
+    setTimeout(r, ms);
   });
 }
 
@@ -49,7 +54,7 @@ function validIpv4Address(ip) {
 
   if (!ipv4Regex.test(ip)) return false;
 
-  const octets = ip.split(".");
+  const octets = ip.split('.');
   const isValid = octets.every((octet) => parseInt(octet, 10) < 256);
   return isValid;
 }
@@ -60,10 +65,8 @@ function validIpv4Address(ip) {
  * @returns {Promise<String>}
  */
 async function getExternalIp() {
-  const scheme = "https";
-  const providers = ["ifconfig.me", "api.ipify.org"];
-  const providerLength = providers.length;
-  let providerIndex = randomIntFromInterval(0, providerLength);
+  const scheme = 'https';
+  const providers = ['ifconfig.me', 'api.ipify.org'];
 
   const httpAgent = new http.Agent({ family: 4 });
 
@@ -72,35 +75,34 @@ async function getExternalIp() {
     httpAgent,
   };
 
-  while (true) {
+  let validatedIp;
+  const providerLength = providers.length;
+  let providerIndex = randomIntFromInterval(0, providerLength);
+
+  while (!validatedIp) {
     const provider = providers.slice(providerIndex, 1);
+    // eslint-disable-next-line no-await-in-loop
     const { data } = await axios
       .get(`${scheme}://${provider}`, config)
       .catch(() => ({ data: null }));
 
-    if (data && validIpv4Address(data)) {
-      return data;
-    }
-
     providerIndex = (providerIndex + 1) % providerLength;
-    await sleep(10_000);
+    // eslint-disable-next-line no-await-in-loop
+    validatedIp = data && validIpv4Address(data) ? data : await sleep(10_000);
   }
 }
 
 function createRandomString(length) {
-  const chars =
-    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   return Array(length)
     .join()
-    .split(",")
-    .map(() => {
-      return chars.charAt(Math.floor(Math.random() * chars.length));
-    })
-    .join("");
+    .split(',')
+    .map(() => chars.charAt(Math.floor(Math.random() * chars.length)))
+    .join('');
 }
 
 async function systemdDaemonReload() {
-  await runCommand("systemctl", { params: ["daemon-reload"] });
+  await runCommand('systemctl', { params: ['daemon-reload'] });
 }
 
 /**
@@ -111,7 +113,7 @@ async function systemdDaemonReload() {
  */
 async function writeServiceFile(name, content) {
   // this always exists
-  const serviceDir = "/etc/systemd/system";
+  const serviceDir = '/etc/systemd/system';
   const target = path.join(serviceDir, name);
   const error = await fs.writeFile(target, content).catch((err) => err);
 
@@ -121,7 +123,7 @@ async function writeServiceFile(name, content) {
 function generateTemplate(name, context) {
   const templateName = `${name}.njk`;
 
-  let content = "";
+  let content = '';
   try {
     content = env.render(templateName, context);
   } catch (err) {
@@ -132,8 +134,8 @@ function generateTemplate(name, context) {
 }
 
 async function readFile(name) {
-  const base = "files";
-  return await fs.readFile(path.join(base, name)).catch(() => '');
+  const base = 'files';
+  return fs.readFile(path.join(base, name)).catch(() => '');
 }
 
 async function writeService(serviceName, options = {}) {
@@ -151,23 +153,23 @@ async function enableServices() {
   const services = ['syncthing', 'fluxos', 'fluxbenchd', 'fluxd'];
   services.forEach(async (service) => {
     await runCommand('systemctl', { params: ['enable', service] });
-  })
-};
+  });
+}
 
 // async function startServices() {
 //   await runCommand('systemctl', { params: ['start', 'flux.target'] });
 // }
 
 async function createServices() {
-  await writeService("syncthing");
-  await writeService("fluxos");
-  await writeService("fluxbenchd", {
-    context: { datadir: "/usr/local/fluxbenchd" },
+  await writeService('syncthing');
+  await writeService('fluxos');
+  await writeService('fluxbenchd', {
+    context: { datadir: '/usr/local/fluxbenchd' },
   });
-  await writeService("fluxd", {
-    context: { datadir: "/usr/local/fluxd" },
+  await writeService('fluxd', {
+    context: { datadir: '/usr/local/fluxd' },
   });
-  await writeService("flux", {
+  await writeService('flux', {
     isTarget: true,
   });
 }
@@ -183,31 +185,26 @@ async function createUsers(users) {
 async function configureServices(fluxosUserConfig, fluxdContext) {
   const { fluxApiPort, fluxosRawConfig } = fluxosUserConfig;
 
-  const base = "/usr/local";
-  const services = ['syncthing', 'fluxos', 'fluxbenchd', 'fluxd'];
-  const asUser = ['syncthing', 'fluxd'];
+  const base = '/usr/local';
+  const services = ['fluxos', 'fluxbenchd', 'fluxd'];
+  const asUser = ['fluxd'];
 
   await createUsers(asUser);
 
   services.forEach(async (service) => {
     const serviceDir = path.join(base, service);
 
-    // rwx rx x = 0o751 - don't need this anymore I don't think
-    await fs.mkdir(serviceDir, { recursive: true, mode: 0o751 }).catch(noop);
+    await fs.mkdir(serviceDir, { recursive: true }).catch(noop);
 
     if (asUser.includes(service)) {
-      try {
-        const { uid, gid } = await linuxUser.getUserInfo(service).catch(noop);
-        await fs.chown(serviceDir, uid, gid);
-      } catch {
-        // create user?
-      }
+      const { uid, gid } = await linuxUser.getUserInfo(service).catch(() => ({}));
+      if (uid && gid) await fs.chown(serviceDir, uid, gid).catch(noop);
     }
   });
 
-  const fluxbenchConf = "fluxbench.conf";
-  const fluxdConf = "flux.conf";
-  const fluxosUserConf = "userconfig.js"
+  const fluxbenchConf = 'fluxbench.conf';
+  const fluxdConf = 'flux.conf';
+  const fluxosUserConf = 'userconfig.js';
 
   const fluxbenchContent = generateTemplate(fluxbenchConf, { fluxApiPort });
 
@@ -223,11 +220,11 @@ async function configureServices(fluxosUserConfig, fluxdContext) {
   const fluxdContent = generateTemplate(fluxdConf, fullFluxdContext);
 
   await fs
-    .writeFile(path.join(base, "fluxbenchd", fluxbenchConf), fluxbenchContent)
+    .writeFile(path.join(base, 'fluxbenchd', fluxbenchConf), fluxbenchContent)
     .catch(noop);
 
   await fs
-    .writeFile(path.join(base, "fluxd", fluxdConf), fluxdContent)
+    .writeFile(path.join(base, 'fluxd', fluxdConf), fluxdContent)
     .catch(noop);
 
   await fs
@@ -242,11 +239,13 @@ async function installFluxOs(nodejsVersion, nodejsInstallDir) {
   let fluxosTag = null;
 
   while (!fluxosTag) {
+    // eslint-disable-next-line no-await-in-loop, camelcase
     const { data: { tag_name } } = await axios
       .get(urlFluxLatestTag, { timeout: 5_000 })
+      // eslint-disable-next-line
       .catch(() => ({ data: { tag_name: null } }));
-
-    fluxosTag = tag_name ? tag_name : await sleep(10_000);
+    // eslint-disable-next-line no-await-in-loop, camelcase
+    fluxosTag = tag_name || await sleep(10_000);
   }
 
   const fluxosDir = '/usr/local/fluxos';
@@ -265,14 +264,14 @@ async function installFluxOs(nodejsVersion, nodejsInstallDir) {
   await fs.mkdir(fluxosLibDir, { recursive: true }).catch(noop);
 
   const git = simpleGit();
-  const err = await git.clone('https://github.com/runonflux/flux.git', fluxosLibDir, { '--depth': 1, '--branch': fluxosTag }).catch((err) => err);
+  const err = await git.clone('https://github.com/runonflux/flux.git', fluxosLibDir, { '--depth': 1, '--branch': fluxosTag }).catch((e) => e);
   // this is just a hack so that the node actually works (we update fluxService to point to this)
   await git.clone('https://github.com/runonflux/flux.git', path.join(fluxosDir, 'canonical'), { '--depth': 1 }).catch(noop);
 
   const fluxServiceFile = path.join(fluxosLibDir, 'ZelBack/src/services/fluxService.js');
   const fluxServiceContent = await fs.readFile(fluxServiceFile, 'utf-8');
-  //   const fluxBackFolder = path.join(__dirname, '../../');
-  const hackLine = `  const fluxBackFolder = '/usr/local/fluxos/canonical/ZelBack';`;
+
+  const hackLine = '  const fluxBackFolder = \'/usr/local/fluxos/canonical/ZelBack\';';
   const modifiedContent = fluxServiceContent.replace(/^\s+const fluxBackFolder = path\.join.*$/m, hackLine);
   fs.writeFile(fluxServiceFile, modifiedContent);
 
@@ -281,7 +280,10 @@ async function installFluxOs(nodejsVersion, nodejsInstallDir) {
     return fluxosLibDir;
   }
 
-  await runCommand(npm, { cwd: fluxosLibDir, params: ['install'] });
+  // we need to pass an env here. Otherwise, this commands inherits our env, and we may already have a
+  // path that contains another node version.
+  const npmEnv = { PATH: '/opt/nodejs/bin' };
+  await runCommand(npm, { env: npmEnv, cwd: fluxosLibDir, params: ['install'] });
 
   await fs.writeFile(versionFile, fluxosTag);
 
@@ -294,7 +296,7 @@ async function linkBinaries(options) {
 
   if (nodejsInstallDir) {
     const nodeExecutables = ['node', 'npm', 'npx'];
-    const nodejsBinDir = '/opt/nodejs/bin'
+    const nodejsBinDir = '/opt/nodejs/bin';
 
     nodeExecutables.forEach(async (executable) => {
       const target = path.join(nodejsInstallDir, 'bin', executable);
@@ -328,7 +330,6 @@ async function installNodeJs(baseInstallDir, version, platform, arch, compressio
   const versionFile = path.join(baseInstallDir, 'version');
   const binDir = path.join(baseInstallDir, 'bin');
 
-
   const installedVersion = await fs.readFile(versionFile).catch(() => '');
 
   if (installedVersion === version) {
@@ -345,26 +346,31 @@ async function installNodeJs(baseInstallDir, version, platform, arch, compressio
     remainingAttempts -= 1;
 
     const workflow = [];
+    // eslint-disable-next-line no-await-in-loop
     const { data: readStream } = await axios({
-      method: "get",
+      method: 'get',
       url,
-      responseType: "stream"
+      responseType: 'stream',
     });
 
     workflow.push(readStream);
     workflow.push(zlib.createGunzip());
     workflow.push(tar.extract(extractDir));
 
-    const work = stream.pipeline.apply(null, workflow);
+    const pipeline = util.promisify(stream.pipeline);
 
-    let error = false;
+    // const work = stream.pipeline.apply(null, workflow);
+    // eslint-disable-next-line no-await-in-loop
+    const error = await pipeline(...workflow).catch(() => true);
 
-    try {
-      await work;
-    } catch (err) {
-      console.log(`Stream error: ${err.code}`);
-      error = true;
-    }
+    // let error = false;
+
+    // try {
+    //   await work;
+    // } catch (err) {
+    //   console.log(`Stream error: ${err.code}`);
+    //   error = true;
+    // }
 
     if (!error) break;
   }
@@ -376,11 +382,14 @@ async function installNodeJs(baseInstallDir, version, platform, arch, compressio
   return installDir;
 }
 
-async function generateSyncthingconfig(syncthingPort) {
+async function generateSyncthingConfig(syncthingPort) {
   const syncthingDir = '/usr/local/syncthing';
-  const configPath = path.join(syncthingDir, 'config.xml')
+  const configPath = path.join(syncthingDir, 'config.xml');
 
-  if (await fs.stat(configPath).catch(() => false)) return;
+  if (await fs.stat(configPath).catch(() => false)) {
+    console.log('Syncthing already configured');
+    return;
+  }
 
   // just run this as gid, uid
   await runCommand('syncthing', { params: ['generate', '--home', syncthingDir, '--no-default-folder'] });
@@ -392,7 +401,7 @@ async function generateSyncthingconfig(syncthingPort) {
     format: true,
     // this is for the builder so that attrs get attr=bool instead of just attr
     suppressBooleanAttributes: false,
-    attributeNamePrefix: "@_"
+    attributeNamePrefix: '@_',
   };
   const parser = new xml.XMLParser(options);
   const parsedConfig = parser.parse(rawConfig);
@@ -408,7 +417,7 @@ async function generateSyncthingconfig(syncthingPort) {
 
   const { uid, gid } = await linuxUser.getUserInfo('syncthing').catch((err) => {
     console.log(err);
-  })
+  });
   // this needs to be fixed (just runCommand as user)
   await fs.chown(syncthingDir, uid, gid).catch(noop);
   await fs.chown(path.join(syncthingDir, 'cert.pem'), uid, gid).catch(noop);
@@ -480,7 +489,9 @@ async function getFluxdConfig(fluxdConfigPath) {
 
   const externalIp = config.externalip || await getExternalIp();
 
-  return { fluxPrivateKey, fluxLockupTxid, fluxLockTxOutputId, externalIp };
+  return {
+    fluxPrivateKey, fluxLockupTxid, fluxLockTxOutputId, externalIp,
+  };
 }
 
 /**
@@ -490,7 +501,6 @@ async function getFluxdConfig(fluxdConfigPath) {
  * @returns
  */
 async function install(nodejsVersion, options = {}) {
-
   if (!nodejsVersion) return null;
 
   if (os.userInfo().uid) {
@@ -515,20 +525,20 @@ async function install(nodejsVersion, options = {}) {
     const fluxdConfig = await getFluxdConfig(fluxdConfigPath);
 
     if (!fluxdConfig) {
-      console.log('no fluxd config')
+      console.log('no fluxd config');
       return null;
     }
 
     const fluxosUserConfig = await getFluxosConfig(fluxosConfigPath);
 
     if (!fluxosUserConfig) {
-      console.log('no fluxos config')
+      console.log('no fluxos config');
       return null;
     }
 
     const syncthingPort = +fluxosUserConfig.fluxApiPort + 2;
 
-    await generateSyncthingconfig(syncthingPort);
+    await generateSyncthingConfig(syncthingPort);
 
     fluxdRpcCredentials = await configureServices(fluxosUserConfig, fluxdConfig);
 
@@ -538,7 +548,7 @@ async function install(nodejsVersion, options = {}) {
 
   const nodejsInstallDir = await installNodeJs(nodejsBaseDir, nodejsVersion, platform, arch, 'gz');
   const fluxosLibDir = await installFluxOs(nodejsVersion, nodejsInstallDir);
-  return { binaryTargets: { nodejsInstallDir, fluxosLibDir }, fluxdRpcCredentials }
+  return { binaryTargets: { nodejsInstallDir, fluxosLibDir }, fluxdRpcCredentials };
 
   // reload fluxos service and the other correct services
 }
@@ -581,7 +591,7 @@ async function copyChain(user, fluxdDataDir) {
   const renamePromises = foldersAbsolute.map(async (folder) => {
     const err = await fs.rename(folder, path.join('/usr/local/fluxd', path.basename(folder))).catch(() => true);
     return err;
-  })
+  });
 
   const renameErrors = await Promise.all(renamePromises);
   const renameErrored = renameErrors.some((x) => x);
@@ -634,40 +644,11 @@ async function allowOperatorFluxCliAccess(fluxdRpcCredentials, uid, gid) {
   const fluxdConf = path.join(fluxdDir, 'flux.conf');
   const { rpcUser, rpcPassword } = fluxdRpcCredentials;
 
-  const content = `rpcuser=${rpcUser}\nrpcpassword=${rpcPassword}\n`
-  await fs.mkdir(fluxdDir, { recursive: true, }).catch(noop);
+  const content = `rpcuser=${rpcUser}\nrpcpassword=${rpcPassword}\n`;
+  await fs.mkdir(fluxdDir, { recursive: true }).catch(noop);
   await fs.writeFile(fluxdConf, content);
   await fs.chown(fluxdDir, uid, gid);
   await fs.chown(fluxdConf, uid, gid);
-}
-
-async function runMigration(existingUser, fluxdConfigPath, fluxosConfigPath) {
-  // not using these right now, was using these to run the pm2 commands as a user, but that is
-  // problematic as we need the env of the user to get the NVM_BIN dir. So just using `runuser`
-  // this is still a good check to make sure the user exists though
-  const { uid, gid } = await linuxUser.getUserInfo(existingUser).catch(noop);
-
-  if (!uid || !gid) return false;
-
-  // url -s https://nodejs.org/download/release/index.json | jq '.[] | select(.lts == "Iron")'
-  // add in check for latest 20.x lts from https://nodejs.org/download/release/index.json.
-
-  const { binaryTargets, fluxdRpcCredentials } = await install('v20.13.1', { migrate: true, fluxdConfigPath, fluxosConfigPath });
-
-  if (!binaryTargets) return false;
-
-  await purgeExistingServices(existingUser);
-
-  await linkBinaries(binaryTargets);
-  await copyChain(existingUser, path.dirname(fluxdConfigPath));
-
-  await enableServices()
-  // await startServices();
-
-  // this still needs a bunch of work, configure recovery user etc.
-  const operatorIds = await harden();
-  await allowOperatorFluxCliAccess(fluxdRpcCredentials, operatorIds.uid, operatorIds.gid);
-  return true;
 }
 
 async function harden() {
@@ -693,7 +674,7 @@ async function harden() {
   await linuxUser.removeUser(recoveryUser).catch(noop);
 
   const { uid: operatorUid, gid: operatorGid } = await linuxUser
-    .addUser({ username: operatorUser, shell: "/bin/rbash", create_home: true })
+    .addUser({ username: operatorUser, shell: '/bin/rbash', create_home: true })
     .catch(() => ({}));
 
   if (!operatorUid || !operatorGid) {
@@ -713,23 +694,23 @@ async function harden() {
   await fs.writeFile(operatorHelpFile, operatorHelpContent);
   await fs.chmod(operatorHelpFile, 0o755);
 
+  const allowedSudoCommands = ['/usr/sbin/ip', '/usr/bin/tcpdump'];
+
   // add to this
   const binaries = [
     operatorHelpFile,
-    "/usr/local/bin/flux-cli",
-    "/usr/local/bin/fluxbench-cli",
-    "/usr/sbin/ip",
-    "/usr/bin/sudo",
-    "/usr/bin/clear_console",
+    '/usr/local/bin/flux-cli',
+    '/usr/local/bin/fluxbench-cli',
+    '/usr/bin/sudo',
+    '/usr/bin/clear_console',
+    ...allowedSudoCommands,
   ];
 
-  const linkPromises = binaries.map((binary) => {
-    return fs.symlink(binary, path.join(operatorBinDir, path.basename(binary)));
-  });
+  const linkPromises = binaries.map((binary) => fs.symlink(binary, path.join(operatorBinDir, path.basename(binary))));
 
   await Promise.all(linkPromises);
 
-  const sudoersContext = { user: operatorUser, allowedSudoCommands: ['/usr/sbin/ip'] };
+  const sudoersContext = { user: operatorUser, allowedSudoCommands };
   const sudoersContent = generateTemplate('harden/sudoers.conf', sudoersContext);
   await fs.writeFile(path.join('/etc/sudoers.d', operatorUser), sudoersContent).catch(noop);
 
@@ -761,29 +742,59 @@ async function harden() {
   await fs.chown(operatorSshDir, operatorUid, operatorGid);
   await fs.chown(oepratorAuthorizedKeys, operatorUid, operatorGid);
 
-
-  console.log('\nCONSOLE RECOVERY USER:', recoveryUser)
+  console.log('\nCONSOLE RECOVERY USER:', recoveryUser);
   console.log('CONSOLE RECOVERY PASSWORD:', recoverPassoword, '\n');
   console.log('NODE OPERATOR USER:', operatorUser);
-  console.log('NODE OPERATOR PRIVATE KEY:\n')
+  console.log('NODE OPERATOR PRIVATE KEY:\n');
   console.log(sshKeys.privateKey);
 
   return { uid: operatorUid, gid: operatorGid };
 }
 
+async function runMigration(existingUser, fluxdConfigPath, fluxosConfigPath) {
+  // not using these right now, was using these to run the pm2 commands as a user, but that is
+  // problematic as we need the env of the user to get the NVM_BIN dir. So just using `runuser`
+  // this is still a good check to make sure the user exists though
+  const { uid, gid } = await linuxUser.getUserInfo(existingUser).catch(noop);
+
+  if (!uid || !gid) return false;
+
+  // url -s https://nodejs.org/download/release/index.json | jq '.[] | select(.lts == "Iron")'
+  // add in check for latest 20.x lts from https://nodejs.org/download/release/index.json.
+
+  const { binaryTargets, fluxdRpcCredentials } = await install('v20.13.1', { migrate: true, fluxdConfigPath, fluxosConfigPath });
+
+  if (!binaryTargets) return false;
+
+  await purgeExistingServices(existingUser);
+
+  await linkBinaries(binaryTargets);
+  await copyChain(existingUser, path.dirname(fluxdConfigPath));
+
+  await enableServices();
+  // await startServices();
+
+  // this still needs a bunch of work, configure recovery user etc.
+  const operatorIds = await harden();
+  await allowOperatorFluxCliAccess(fluxdRpcCredentials, operatorIds.uid, operatorIds.gid);
+  return true;
+}
+
 if (require.main === module) {
-  const args = process.argv.slice(2, 5);
+  // const args = process.argv.slice(2, 5);
 
-  // just do this properly: const { parseArgs } = require('node:util');
+  // // just do this properly: const { parseArgs } = require('node:util');
 
-  if (args.length === 1 && args[0] === 'CLEAN_INSTALL') {
-    // do a full install. Download chain blah blah.
-  }
-  else if (args.length !== 3) {
-    // we've been forked from fluxOS as root (using sudo), and are migrating.
-    console.log('not enough args to run migration.');
-    return
-  }
+  // if (args.length === 1 && args[0] === 'CLEAN_INSTALL') {
+  //   // do a full install. Download chain blah blah.
+  // }
+  // else if (args.length !== 3) {
+  //   console.log('not enough args to run migration.');
+  //   return
+  // }
 
-  runMigration(...args);
+  // // we've been forked from fluxOS as root (using sudo), and are migrating.
+  // runMigration(...args);
+
+  installNodeJs('/opt/nodejstest', 'v20.13.1', 'linux', 'x64', 'gz');
 }
