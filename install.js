@@ -151,9 +151,12 @@ async function writeService(serviceName, options = {}) {
 
 async function enableServices() {
   const services = ['syncthing', 'fluxos', 'fluxbenchd', 'fluxd'];
-  services.forEach(async (service) => {
-    await runCommand('systemctl', { params: ['enable', service] });
+
+  const servicePromises = services.map(async (service) => {
+    return runCommand('systemctl', { params: ['enable', service] });
   });
+
+  await Promise.all(servicePromises);
 }
 
 // async function startServices() {
@@ -177,9 +180,11 @@ async function createServices() {
 async function createUsers(users) {
   if (!process.platform === 'linux') return;
 
-  users.forEach(async (user) => {
-    await linuxUser.addUser({ username: user, shell: null, system: true }).catch((err) => console.log(err));
+  const userPromises = users.map(async (user) => {
+    return linuxUser.addUser({ username: user, shell: null, system: true }).catch((err) => console.log(err));
   });
+
+  await Promise.all(userPromises);
 }
 
 async function configureServices(fluxosUserConfig, fluxdContext) {
@@ -192,18 +197,18 @@ async function configureServices(fluxosUserConfig, fluxdContext) {
 
   await createUsers(asUser);
 
-  services.forEach(async (service) => {
+  const servicePromises = services.map(async (service) => {
     const serviceDir = path.join(base, service);
-    console.log(serviceDir);
 
     await fs.mkdir(serviceDir, { recursive: true }).catch(noop);
 
     if (asUser.includes(service)) {
-      console.log('getting uid for service', service)
       const { uid, gid } = await linuxUser.getUserInfo(service).catch(() => ({}));
       if (uid && gid) await fs.chown(serviceDir, uid, gid).catch(noop);
     }
   });
+
+  await Promise.all(servicePromises);
 
   await generateSyncthingConfig(syncthingPort);
 
@@ -303,13 +308,15 @@ async function linkBinaries(options) {
     const nodeExecutables = ['node', 'npm', 'npx'];
     const nodejsBinDir = '/opt/nodejs/bin';
 
-    nodeExecutables.forEach(async (executable) => {
+    const exePromises = nodeExecutables.map(async (executable) => {
       const target = path.join(nodejsInstallDir, 'bin', executable);
       const name = path.join(nodejsBinDir, executable);
 
       await fs.rm(name, { force: true }).catch(noop);
       await fs.symlink(target, name).catch(noop);
     });
+
+    await Promise.all(exePromises);
   }
 
   if (fluxosLibDir) {
