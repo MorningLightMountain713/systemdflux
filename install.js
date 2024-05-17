@@ -645,7 +645,9 @@ async function purgeExistingServices(user) {
 
   await systemdDaemonReload();
 
-  await runCommand('pkill', { logError: false, params: ['syncthing'] });
+  const syncthingKilled = await runCommand('pkill', { logError: false, params: ['-e', 'syncthing'] });
+
+  if (syncthingKilled) console.log(syncthingKilled);
 
   await fs.rm(userConfigDir, { recursive: true, force: true });
 }
