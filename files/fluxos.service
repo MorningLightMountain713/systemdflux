@@ -15,6 +15,7 @@ StartLimitBurst=4
 Environment=FLUXD_CONFIG_PATH=/usr/local/fluxd/flux.conf
 Environment=SYNCTHING_CONFIG_PATH=/usr/local/syncthing/config.xml
 Environment=FLUXBENCH_PATH=/usr/local/fluxbenchd
+Environment=FLUX_APPS_FOLDER=/usr/local/fluxos/FluxApps
 
 User=root
 Group=root

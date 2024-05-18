@@ -616,6 +616,21 @@ async function copyChain(user, fluxdDataDir) {
   return true;
 }
 
+async function stopProcessByName(processName) {
+  // this was written for syncthing, it should really timeout the SIGTERM, then issue SIGKILL.
+
+  await runCommand('pkill', { logError: false, params: [processName] });
+
+  await sleep(500);
+
+  let processStopped = false;
+  while (!processStopped) {
+    const { error: pgrepError } = await runCommand('pgrep', { logError: false, params: [processName] });
+
+    processStopped = pgrepError || await sleep(1_000);
+  }
+}
+
 async function purgeExistingServices(user) {
   // this needs to be idempotent
 
@@ -645,9 +660,12 @@ async function purgeExistingServices(user) {
 
   await systemdDaemonReload();
 
-  const syncthingKilled = await runCommand('pkill', { logError: false, params: ['-e', 'syncthing'] });
+  // this is the only process that isn't managed by a supervisor, so we have to manually kill it.
+  // we need to check that it is stupped, otherwise, it stops our systemd process from starting.
 
-  if (syncthingKilled) console.log(syncthingKilled);
+  // it seems to always respond to SIGTERM, so resorting to SIGKILL seems unnecessary.
+
+  await stopProcessByName('syncthing');
 
   await fs.rm(userConfigDir, { recursive: true, force: true });
 }
