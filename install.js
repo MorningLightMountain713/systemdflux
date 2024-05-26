@@ -422,8 +422,8 @@ class throughputLogger {
   get throughput() {
     const timespan = this.elapsed - this.startDelay;
     const elapsedSec = Number(timespan) / 1000000000;
-    const bytesPerSec = this.bytesTransfered / elapsedSec;
-    return ((bytesPerSec / 1000 / 1000) + Number.EPSILON).toFixed(2) // Mbps, note Mibit/s would use 1024
+    const bitsPerSec = this.bytesTransfered / elapsedSec * 8;
+    return ((bitsPerSec / 1000 / 1000) + Number.EPSILON).toFixed(2) // Mbit/s, note Mibit/s would use 1024
   }
 
   logData(chunk) {
@@ -447,7 +447,7 @@ class throughputLogger {
  * @returns {Promise<Boolean>}
  */
 async function streamDownload(url, options = {}) {
-  const result = { success: false, throughput: null };
+  const result = { success: false, throughput: null, unit: 'Mbit/s' };
 
   let remainingAttempts = options.remainingAttempts || 3;
   const logErrors = options.logErrors ?? true;
