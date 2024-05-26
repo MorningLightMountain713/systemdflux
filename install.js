@@ -434,6 +434,10 @@ class throughputLogger {
     }
     this.bytesTransfered += chunk.byteLength;
   }
+
+  abort() {
+    this.stream.destroy(new Error('AbortError'));
+  }
 }
 
 /**
@@ -454,83 +458,76 @@ async function streamDownload(url, options = {}) {
   const target = options.target || '';
 
   const dataLogger = measureThroughput ? new throughputLogger({ startDelay: 1 }) : null;
-  const pipelineController = maxDuration ? new AbortController() : undefined;
+  // const pipelineController = maxDuration ? new AbortController() : undefined;
 
   if (!archiveTarget && !target) throw new Error('archiveTarget or target must be provided');
 
   let handle = null;
 
-  // workaround for nodejs 14
-
-  // if (target) {
-  //   handle = await fs.open(target, 'w').catch((err) => {
-  //     if (logErrors) console.log(err);
-  //     return null;
-  //   });
-
-  //   if (!handle) return result;
-  // }
-
   if (target) {
-    try {
-      handle = createWriteStream(target);
-    } catch (err) {
+    handle = await fs.open(target, 'w').catch((err) => {
       if (logErrors) console.log(err);
-      return result;
+      return null;
+    });
+
+    if (!handle) return result;
+  }
+
+  try {
+    if (archiveTarget) {
+      const archiveError = await fs.mkdir(archiveTarget, { recursive: true }).catch((err) => {
+        if (logErrors) console.log(err)
+        return true;
+      });
+
+      if (archiveError) return result;
     }
+
+    // const writeStream = handle ? handle.createWriteStream(target) : tar.extract(archiveTarget);
+    const writeStream = handle ? createWriteStream('', { fd: handle.fd }) : tar.extract(archiveTarget);
+
+    while (remainingAttempts) {
+      remainingAttempts -= 1;
+
+      const workflow = [];
+      // eslint-disable-next-line no-await-in-loop
+      const { data: readStream } = await axios({
+        method: 'get',
+        url,
+        responseType: 'stream',
+      });
+
+      workflow.push(readStream);
+      if (compression) workflow.push(zlib.createGunzip());
+      if (dataLogger) workflow.push(dataLogger.stream);
+      workflow.push(writeStream);
+
+      const pipeline = util.promisify(stream.pipeline);
+
+      // const durationTimer = setTimeout(() => pipelineController.abort(), maxDuration);
+      const durationTimer = setTimeout(() => dataLogger.abort(), maxDuration);
+
+      // eslint-disable-next-line no-await-in-loop
+      const error = await pipeline(...workflow).catch((err) => {
+        if (err.message === 'AbortError') return false;
+
+        if (logErrors) console.log(err);
+        return true;
+      });
+
+      clearTimeout(durationTimer);
+
+      if (!error) break;
+    }
+
+    if (measureThroughput) result.throughput = dataLogger.throughput;
+    result.success = true;
+
+    return result;
+
+  } finally {
+    if (handle) await handle.close().catch(noop);
   }
-
-  if (archiveTarget) {
-    const archiveError = await fs.mkdir(archiveTarget, { recursive: true }).catch((err) => {
-      if (logErrors) console.log(err)
-      return true;
-    });
-
-    if (archiveError) return result;
-  }
-
-  // const writeStream = handle ? handle.createWriteStream(target) : tar.extract(archiveTarget);
-  const writeStream = handle ? handle : tar.extract(archiveTarget);
-
-
-  while (remainingAttempts) {
-    remainingAttempts -= 1;
-
-    const workflow = [];
-    // eslint-disable-next-line no-await-in-loop
-    const { data: readStream } = await axios({
-      method: 'get',
-      url,
-      responseType: 'stream',
-    });
-
-    workflow.push(readStream);
-    if (compression) workflow.push(zlib.createGunzip());
-    if (dataLogger) workflow.push(dataLogger.stream);
-    workflow.push(writeStream);
-
-    const pipeline = util.promisify(stream.pipeline);
-
-    const durationTimer = setTimeout(() => pipelineController.abort(), maxDuration);
-
-    // const work = stream.pipeline.apply(null, workflow);
-    // eslint-disable-next-line no-await-in-loop
-    const error = await pipeline(...workflow, { signal: pipelineController.signal }).catch((err) => {
-      if (err.name === 'AbortError') return false;
-
-      if (logErrors) console.log(err);
-      return true;
-    });
-
-    clearTimeout(durationTimer);
-
-    if (!error) break;
-  }
-
-  if (measureThroughput) result.throughput = dataLogger.throughput;
-  result.success = true;
-
-  return result;
 }
 
 async function downloadChain() {
@@ -543,7 +540,7 @@ async function getFastestCdnProvider() {
 
   for (const cdnId of cdnIds) {
     const url = `http://cdn-${cdnId}.runonflux.io/apps/fluxshare/getfile/${bootstrap}`;
-    const target = '/tmp/testDl';
+    const target = `/tmp/testdl_cdn_${cdnId}`;
 
     const res = await streamDownload(url, { target, measureThroughput: true, maxDuration: 6_000 });
     console.log('Provider:', cdnId, res)
