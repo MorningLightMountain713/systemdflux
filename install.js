@@ -1,5 +1,8 @@
 const path = require('node:path');
 const fs = require('node:fs/promises');
+// workaround for nodejs 14
+const { createWriteStream } = require('node:fs');
+
 const os = require('node:os');
 const zlib = require('node:zlib');
 // this is a workaround for node 14.x
@@ -457,13 +460,24 @@ async function streamDownload(url, options = {}) {
 
   let handle = null;
 
-  if (target) {
-    handle = await fs.open(target, 'w').catch((err) => {
-      if (logErrors) console.log(err);
-      return null;
-    });
+  // workaround for nodejs 14
 
-    if (!handle) return result;
+  // if (target) {
+  //   handle = await fs.open(target, 'w').catch((err) => {
+  //     if (logErrors) console.log(err);
+  //     return null;
+  //   });
+
+  //   if (!handle) return result;
+  // }
+
+  if (target) {
+    try {
+      handle = createWriteStream(target);
+    } catch (err) {
+      if (logErrors) console.log(err);
+      return result;
+    }
   }
 
   if (archiveTarget) {
@@ -475,7 +489,9 @@ async function streamDownload(url, options = {}) {
     if (archiveError) return result;
   }
 
-  const writeStream = handle ? handle.createWriteStream(target) : tar.extract(archiveTarget);
+  // const writeStream = handle ? handle.createWriteStream(target) : tar.extract(archiveTarget);
+  const writeStream = handle ? handle : tar.extract(archiveTarget);
+
 
   while (remainingAttempts) {
     remainingAttempts -= 1;
