@@ -5,6 +5,9 @@ if [[ "$EUID" -ne 0 ]]
   exit
 fi
 
-apt-get install nodejs -y
+# yarn is 80Mb, vs over 500Mb for npm.
+apt-get install nodejs yarn -y
+
+yarn install
 
 node install.js CLEAN_INSTALL

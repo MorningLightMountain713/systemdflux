@@ -1,26 +1,23 @@
 const path = require('node:path');
 const fs = require('node:fs/promises');
 const os = require('node:os');
+const zlib = require('node:zlib');
+// this is a workaround for node 14.x
+// const { randomBytes } = require('ed25519-keygen/utils');
+const { randomBytes } = require('node:crypto');
+// use non promises stream for node 14.x compatibility
+// const stream = require('node:stream/promises');
+const stream = require('node:stream');
+const util = require('node:util');
+const http = require('node:http');
 
-const http = require('http');
 const axios = require('axios');
 const simpleGit = require('simple-git');
 const nunjucks = require('nunjucks');
 const xml = require('fast-xml-parser');
 const ini = require('ini');
-
-const ssh = require('ed25519-keygen/ssh');
-// this is a workaround for node 14.x
-// const { randomBytes } = require('ed25519-keygen/utils');
-const { randomBytes } = require('node:crypto');
-
-const zlib = require('node:zlib');
 const tar = require('tar-fs');
-
-// use non promises stream for node 14.x compatibility
-// const stream = require('node:stream/promises');
-const stream = require('node:stream');
-const util = require('node:util');
+const ssh = require('ed25519-keygen/ssh');
 
 let linuxUser;
 
@@ -54,6 +51,7 @@ function validIpv4Address(ip) {
   // first octet must start with 1-9, then next 3 can be 0.
   const ipv4Regex = /^[1-9]\d{0,2}\.(\d{0,3}\.){2}\d{0,3}$/;
 
+  if (!ip) return false;
   if (!ipv4Regex.test(ip)) return false;
 
   const octets = ip.split('.');
@@ -90,7 +88,7 @@ async function getExternalIp() {
 
     providerIndex = (providerIndex + 1) % providerLength;
     // eslint-disable-next-line no-await-in-loop
-    validatedIp = data && validIpv4Address(data) ? data : await sleep(10_000);
+    validatedIp = validIpv4Address(data) ? data : await sleep(10_000);
   }
 }
 
@@ -245,15 +243,15 @@ async function configureServices(fluxosUserConfig, fluxdContext) {
   return { rpcUser, rpcPassword };
 }
 
-async function installFluxOs(nodejsVersion, nodejsInstallDir) {
-  const urlFluxLatestTag = 'https://api.github.com/repos/runonflux/flux/releases/latest';
+async function installFluxOs(nodejsVersion, nodejsInstallDir, requestedTag) {
+  const tagUrl = 'https://api.github.com/repos/runonflux/flux/releases/latest';
 
-  let fluxosTag = null;
+  let fluxosTag = requestedTag || null;
 
   while (!fluxosTag) {
     // eslint-disable-next-line no-await-in-loop, camelcase
     const { data: { tag_name } } = await axios
-      .get(urlFluxLatestTag, { timeout: 5_000 })
+      .get(tagUrl, { timeout: 5_000 })
       // eslint-disable-next-line
       .catch(() => ({ data: { tag_name: null } }));
     // eslint-disable-next-line no-await-in-loop, camelcase
@@ -397,6 +395,144 @@ async function installNodeJs(baseInstallDir, version, platform, arch, compressio
   await fs.writeFile(versionFile, version).catch(noop);
 
   return installDir;
+}
+
+class throughputLogger {
+  stream = new stream.PassThrough();
+  start = BigInt(0);
+  end = BigInt(0);
+  bytesTransfered = 0;
+
+  constructor(options = {}) {
+    // we use a delay to allow for TCP slow start. Start delay is in seconds
+    this.startDelay = BigInt(options.startDelay * 1000000000) || BigInt(0);
+
+    this.stream.once('data', () => this.start = process.hrtime.bigint());
+    this.stream.on('data', (chunk) => this.logData(chunk))
+    this.stream.once('end', () => this.end = process.hrtime.bigint());
+  }
+
+  get elapsed() {
+    return this.end ? this.end - this.start : process.hrtime.bigint() - this.start;
+  }
+
+  get throughput() {
+    const timespan = this.elapsed - this.startDelay;
+    const elapsedSec = Number(timespan) / 1000000000;
+    const bytesPerSec = this.bytesTransfered / elapsedSec;
+    return ((bytesPerSec / 1000 / 1000) + Number.EPSILON).toFixed(2) // Mbps, note Mibit/s would use 1024
+  }
+
+  logData(chunk) {
+    if (this.startDelay > this.elapsed) return;
+    // as we're concerned with speed here, we reset the function to remove the delay check
+    this.logData = (chunk) => {
+      this.bytesTransfered += chunk.byteLength;
+    }
+    this.bytesTransfered += chunk.byteLength;
+  }
+}
+
+/**
+ *
+ * @param {string} url The download url
+ * @param {{remainingAttempts?: number, logErrors?: Boolean, compression?: Boolean, archiveTarget?: string, target?: string}} options
+ * @returns {Promise<Boolean>}
+ */
+async function streamDownload(url, options = {}) {
+  const result = { success: false, throughput: null };
+
+  let remainingAttempts = options.remainingAttempts || 3;
+  const logErrors = options.logErrors ?? true;
+  const maxDuration = options.maxDuration || 0;
+  const measureThroughput = options.measureThroughput || false;
+  const compression = options.compression || false;
+  const archiveTarget = options.archiveTarget || '';
+  const target = options.target || '';
+
+  const dataLogger = measureThroughput ? new throughputLogger({ startDelay: 1 }) : null;
+  const pipelineController = maxDuration ? new AbortController() : undefined;
+
+  if (!archiveTarget && !target) throw new Error('archiveTarget or target must be provided');
+
+  let handle = null;
+
+  if (target) {
+    handle = await fs.open(target, 'w').catch((err) => {
+      if (logErrors) console.log(err);
+      return null;
+    });
+
+    if (!handle) return result;
+  }
+
+  if (archiveTarget) {
+    const archiveError = await fs.mkdir(archiveTarget, { recursive: true }).catch((err) => {
+      if (logErrors) console.log(err)
+      return true;
+    });
+
+    if (archiveError) return result;
+  }
+
+  const writeStream = handle ? handle.createWriteStream(target) : tar.extract(archiveTarget);
+
+  while (remainingAttempts) {
+    remainingAttempts -= 1;
+
+    const workflow = [];
+    // eslint-disable-next-line no-await-in-loop
+    const { data: readStream } = await axios({
+      method: 'get',
+      url,
+      responseType: 'stream',
+    });
+
+    workflow.push(readStream);
+    if (compression) workflow.push(zlib.createGunzip());
+    if (dataLogger) workflow.push(dataLogger.stream);
+    workflow.push(writeStream);
+
+    const pipeline = util.promisify(stream.pipeline);
+
+    const durationTimer = setTimeout(() => pipelineController.abort(), maxDuration);
+
+    // const work = stream.pipeline.apply(null, workflow);
+    // eslint-disable-next-line no-await-in-loop
+    const error = await pipeline(...workflow, { signal: pipelineController.signal }).catch((err) => {
+      if (err.name === 'AbortError') return false;
+
+      if (logErrors) console.log(err);
+      return true;
+    });
+
+    clearTimeout(durationTimer);
+
+    if (!error) break;
+  }
+
+  if (measureThroughput) result.throughput = dataLogger.throughput;
+  result.success = true;
+
+  return result;
+}
+
+async function downloadChain() {
+  const fastestProvider = await runCommand()
+}
+
+async function getFastestCdnProvider() {
+  const bootstrap = 'flux_explorer_bootstrap.tar.gz';
+  const cdnIds = [5, 6, 7, 8, 9, 10, 11, 12];
+
+  for (const cdnId of cdnIds) {
+    const url = `http://cdn-${cdnId}.runonflux.io/apps/fluxshare/getfile/${bootstrap}`;
+    const target = '/tmp/testDl';
+
+    const res = await streamDownload(url, { target, measureThroughput: true, maxDuration: 6_000 });
+    console.log('Provider:', cdnId, res)
+    await fs.rm(target, { force: true });
+  }
 }
 
 async function generateSyncthingConfig(syncthingPort) {
@@ -784,6 +920,18 @@ async function harden() {
   return { uid: operatorUid, gid: operatorGid };
 }
 
+async function streamBootstrap() {
+  const response = await axios.get('https://stream.example.com', {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      responseType: 'stream'
+    }
+  });
+
+  const stream = response.data;
+  var writeStream = fs.createWriteStream('someFile.txt', { flags: 'w' });
+}
+
 async function runMigration(existingUser, fluxdConfigPath, fluxosConfigPath) {
   // not using these right now, was using these to run the pm2 commands as a user, but that is
   // problematic as we need the env of the user to get the NVM_BIN dir. So just using `runuser`
@@ -820,6 +968,11 @@ if (require.main === module) {
 
   if (args.length === 1 && args[0] === 'CLEAN_INSTALL') {
     // do a full install. Download chain blah blah.
+    return;
+  }
+  else if (args.length === 1 && args[0] === 'SPEEDTEST') {
+    getFastestCdnProvider()
+    return;
   }
   else if (args.length !== 3) {
     console.log('not enough args to run migration.');
