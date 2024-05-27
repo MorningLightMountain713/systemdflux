@@ -402,40 +402,86 @@ async function installNodeJs(baseInstallDir, version, platform, arch, compressio
 
 class throughputLogger {
   stream = new stream.PassThrough();
-  start = BigInt(0);
-  end = BigInt(0);
+
+  startTime = BigInt(0);
+
+  endTime = BigInt(0);
+
   bytesTransfered = 0;
+
+  intervalStartTime = BigInt(0);
+
+  intervalStartBytes = 0;
+
+  intervalBytesTransfered = 0;
+
+  intervalThroughput = 0;
+
+  intervalTimer = null;
 
   constructor(options = {}) {
     // we use a delay to allow for TCP slow start. Start delay is in seconds
     this.startDelay = BigInt(options.startDelay * 1000000000) || BigInt(0);
 
-    this.stream.once('data', () => this.start = process.hrtime.bigint());
+    this.stream.once('data', () => this.start());
     this.stream.on('data', (chunk) => this.logData(chunk))
-    this.stream.once('end', () => this.end = process.hrtime.bigint());
+    this.stream.once('end', () => this.end());
   }
 
-  get elapsed() {
-    return this.end ? this.end - this.start : process.hrtime.bigint() - this.start;
+  static toFixedNumber(number, options = {}) {
+    const precision = options.precision ?? 2;
+    const base = options.base || 10;
+
+    const pow = Math.pow(base, precision);
+
+    return Math.round(number * pow) / pow;
+  }
+
+  get elapsedTime() {
+    return this.endTime ? this.endTime - this.startTime : process.hrtime.bigint() - this.startTime;
   }
 
   get elapsedSec() {
-    return Number(this.elapsed) / 1000000000;
+    return Number(this.elapsedTime) / 1000000000;
   }
 
   get throughput() {
-    const timespan = this.elapsed - this.startDelay;
+    const timespan = this.elapsedTime - this.startDelay;
     const elapsedSec = Number(timespan) / 1000000000;
     const bitsPerSec = this.bytesTransfered / elapsedSec * 8;
-    return ((bitsPerSec / 1000 / 1000) + Number.EPSILON).toFixed(2) // Mbit/s, note Mibit/s would use 1024
+    return throughputLogger.toFixedNumber(bitsPerSec / 1000 / 1000); // Mbit/s, note Mibit/s would use 1024
   }
 
   get totalGbTransfered() {
-    return ((this.bytesTransfered / 1000 / 1000 / 1000) + Number.EPSILON).toFixed(2);
+    return throughputLogger.toFixedNumber(this.bytesTransfered / 1000 / 1000 / 1000);
+  }
+
+  start() {
+    this.startTime = process.hrtime.bigint();
+    this.intervalStartTime = this.startTime;
+
+    this.intervalTimer = setInterval(() => {
+      // snapshot
+      const now = process.hrtime.bigint();
+      const bytesTransfered = this.bytesTransfered;
+
+      const intervalBytes = bytesTransfered - this.intervalStartBytes;
+      const intervalBitsPerSec = intervalBytes / (Number(now - this.intervalStartTime) / 1000000000) * 8;
+      this.intervalThroughput = throughputLogger.toFixedNumber(intervalBitsPerSec / 1000 / 1000); // Mbit/s
+
+      this.intervalStartBytes = bytesTransfered;
+      this.intervalStartTime = now;
+    }, 5_000)
+  }
+
+  end() {
+    this.endTime = process.hrtime.bigint();
+    clearInterval(this.intervalTimer);
+    this.intervalTimer = null;
   }
 
   logData(chunk) {
-    if (this.startDelay > this.elapsed) return;
+    if (this.startDelay > this.elapsedTime) return;
     // as we're concerned with speed here, we reset the function to remove the delay check
     this.logData = (chunk) => {
       this.bytesTransfered += chunk.byteLength;
@@ -524,8 +570,9 @@ async function streamDownload(url, options = {}) {
     }
 
     workflow.push(readStream);
-    if (compression) workflow.push(zlib.createGunzip());
+    // datalogger has to go before any decompression to work with content-length header
     if (dataLogger) workflow.push(dataLogger.stream);
+    if (compression) workflow.push(zlib.createGunzip());
     workflow.push(writeStream);
 
     const pipeline = util.promisify(stream.pipeline);
@@ -541,7 +588,8 @@ async function streamDownload(url, options = {}) {
         transfered = dataLogger.totalGbTransfered;
         console.log('Tranfered:', transfered, 'Gb')
         console.log('Elapsed', dataLogger.elapsedSec)
-        console.log('Average Throughput', dataLogger.throughput, 'Mbit/s')
+        console.log('Average Throughput:', dataLogger.throughput, 'Mbit/s')
+        console.log('Instantaneous Throughput:', dataLogger.intervalThroughput, 'Mbit/s')
         if (sizeGb) console.log('Percent complete:', ((transfered / sizeGb * 100) + Number.EPSILON).toFixed(3));
       }, 5_000);
     }
