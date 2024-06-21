@@ -25,7 +25,7 @@ const ssh = require('ed25519-keygen/ssh');
 let linuxUser;
 
 if (process.platform === 'linux') {
-  // eslint-disable-next-line global-require
+
   linuxUser = require('linux-sys-user').promise();
 }
 
@@ -84,13 +84,13 @@ async function getExternalIp() {
 
   while (!validatedIp) {
     const provider = providers.slice(providerIndex, 1);
-    // eslint-disable-next-line no-await-in-loop
+
     const { data } = await axios
       .get(`${scheme}://${provider}`, config)
       .catch(() => ({ data: null }));
 
     providerIndex = (providerIndex + 1) % providerLength;
-    // eslint-disable-next-line no-await-in-loop
+
     validatedIp = validIpv4Address(data) ? data : await sleep(10_000);
   }
 }
@@ -252,12 +252,12 @@ async function installFluxOs(nodejsVersion, nodejsInstallDir, requestedTag) {
   let fluxosTag = requestedTag || null;
 
   while (!fluxosTag) {
-    // eslint-disable-next-line no-await-in-loop, camelcase
+
     const { data: { tag_name } } = await axios
       .get(tagUrl, { timeout: 5_000 })
-      // eslint-disable-next-line
+
       .catch(() => ({ data: { tag_name: null } }));
-    // eslint-disable-next-line no-await-in-loop, camelcase
+
     fluxosTag = tag_name || await sleep(10_000);
   }
 
@@ -364,7 +364,7 @@ async function installNodeJs(baseInstallDir, version, platform, arch, compressio
     remainingAttempts -= 1;
 
     const workflow = [];
-    // eslint-disable-next-line no-await-in-loop
+
     const { data: readStream } = await axios({
       method: 'get',
       url,
@@ -378,7 +378,7 @@ async function installNodeJs(baseInstallDir, version, platform, arch, compressio
     const pipeline = util.promisify(stream.pipeline);
 
     // const work = stream.pipeline.apply(null, workflow);
-    // eslint-disable-next-line no-await-in-loop
+
     const error = await pipeline(...workflow).catch(() => true);
 
     // let error = false;
@@ -555,7 +555,7 @@ async function streamDownload(url, options = {}) {
     remainingAttempts -= 1;
 
     const workflow = [];
-    // eslint-disable-next-line no-await-in-loop
+
     const { data: readStream, headers } = await axios({
       method: 'get',
       url,
@@ -585,7 +585,7 @@ async function streamDownload(url, options = {}) {
 
     if (measureThroughput && logThroughput) {
       throughputNotifier = setInterval(() => {
-        transfered = dataLogger.totalGbTransfered;
+        const transfered = dataLogger.totalGbTransfered;
         console.log('Tranfered:', transfered, 'Gb')
         console.log('Elapsed', dataLogger.elapsedSec)
         console.log('Average Throughput:', dataLogger.throughput, 'Mbit/s')
@@ -594,7 +594,7 @@ async function streamDownload(url, options = {}) {
       }, 5_000);
     }
 
-    // eslint-disable-next-line no-await-in-loop
+
     const error = await pipeline(...workflow).catch((err) => {
       if (err.message === 'AbortError') return false;
 
